@@ -4,7 +4,7 @@ ParagonSR2 Hybrid - Efficient Super-Resolution with Dual-Path Architecture
 
 Author: Philip Hofmann
 License: MIT
-Repository: https://github.com/Phhofm/traiNNer-redux
+Repository: https://github.com/Phhofm/ParagonSR2
 
 ═══════════════════════════════════════════════════════════════════════════════
 DESIGN PHILOSOPHY
