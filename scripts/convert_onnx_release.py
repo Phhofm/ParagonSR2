@@ -13,15 +13,15 @@ Features:
 
 Usage:
     python convert_onnx_release.py \
-        --checkpoint "models/paragon_pro_x4.safetensors" \
-        --arch paragonsr2_pro \
+        --checkpoint "models/paragon_photo_x4.safetensors" \
+        --arch paragonsr2_photo \
         --scale 4 \
         --output "release_output" \
         --device cuda
 
     # Then build TRT engine:
-    trtexec --onnx=release_output/paragonsr2_pro_fp32.onnx \
-            --saveEngine=paragonsr2_pro_fp16.trt \
+    trtexec --onnx=release_output/paragonsr2_photo_fp32.onnx \
+            --saveEngine=paragonsr2_photo_fp16.trt \
             --fp16 \
             --minShapes=input:1x3x64x64 \
             --optShapes=input:1x3x720x1280 \
@@ -59,7 +59,7 @@ try:
         "paragonsr2_realtime": paragonsr2_arch.paragonsr2_realtime,
         "paragonsr2_stream": paragonsr2_arch.paragonsr2_stream,
         "paragonsr2_photo": paragonsr2_arch.paragonsr2_photo,
-        "paragonsr2_pro": paragonsr2_arch.paragonsr2_pro,
+
     }
 
 except ImportError:
@@ -247,6 +247,8 @@ class ParagonConverter:
             },
             opset_version=18,  # Updated for PyTorch 2.5+ / TRT 8.6+
             do_constant_folding=True,
+            # For future Custom Symbolic / FlexAttention export:
+            # custom_opsets={"com.custom": 1},
         )
 
         # Optimizing / Cleaning

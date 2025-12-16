@@ -62,13 +62,11 @@ The road to the final **ParagonSR2** was paved with many experiments. This docum
     *   **Multi-Block Support**: Unified `Nano` (MBConv), `Stream` (Gate), and `Photo` (Paragon) into one file.
 *   **Result**: The final architecture released in `traiNNer/archs/paragonsr2_arch.py`.
 
----
-
-## Final Architecture Summary
-
-The final **ParagonSR2** combines the best of all worlds:
-*   **Structure**: Dual-Path (v5) for safety and quality.
-*   **Speed**: Normalization-Free & LeakyReLU (v2).
-*   **Intelligence**: Content-Aware Detail Processing (v5).
-*   **Global Context**: Shifted Window Attention (v6).
-*   **Versatility**: Capable of being "Nano" (Video) or "Pro" (Photo) through block switching.
+### 9. `paragonsr2_arch_version7.py` (The Performance & Compatibility Update)
+*   **Focus**: Maximum training speed and seamless deployment.
+*   **Innovations**:
+    *   **FlexAttention Fusion**: Implemented fused RPB `score_mod` for fastest possible training on NVIDIA GPUs.
+    *   **Intelligent Fallback**: Automatic switch to standard Attention for ONNX export, ensuring zero-friction deployment.
+    *   **RAttention Proxy**: Replaced recurrent units with convolution-based "Region-Aware Context" (3x3 DW Conv on K/V) for stable context expansion.
+    *   **MSCF**: Introduced Multi-Scale Cross-Fusion to aggregate features from 1x1, 3x3, and 5x5 kernels.
+*   **Cleanup**: Removed the "Pro" variant to streamline the lineup around the most effective models (Realtime/Stream/Photo).

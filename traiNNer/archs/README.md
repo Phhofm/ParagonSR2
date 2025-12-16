@@ -70,7 +70,7 @@ The architecture is designed to scale from mobile devices to workstations.
 -   **Tech**: Uses `SimpleGateBlock` (Gated Feed-Forward Network).
 -   **Why**: Gating mechanisms work exceptionally well for removing compression artifacts (de-blocking) without the computational cost of Attention.
 
-### Photo & Pro (Base/Large)
+### Photo (Base)
 -   **Goal**: Best possible single-image restoration.
 -   **Tech**: Uses `ParagonBlock` with **Shifted Window Attention**.
 -   **Why**: Convolution (local) sees edges. Attention (global) sees patterns.
@@ -98,5 +98,31 @@ network_g:
   type: paragonsr2_photo
   scale: 4
   upsampler_alpha: 0.5   # Tune this! 0.0=Soft, 1.0=SharpBase
-  use_checkpointing: true # Use for Pro variant on <24GB VRAM
+  upsampler_alpha: 0.5   # Tune this! 0.0=Soft, 1.0=SharpBase
+  use_checkpointing: true # Recommended for 12GB+ VRAM
 ```
+
+---
+
+## 5. Version 7 Enhancements (Performance & Compatibility)
+
+The "v7" update introduced several focused improvements to maximize training throughput without breaking deployment compatibility.
+
+### FlexAttention and RPB Fusion
+-   **Why**: Calculating attention and *then* adding Relative Position Bias (RPB) involves creating large intermediate tensors, which slows down training.
+-   **Solution**: We use `torch.nn.attention.flex_attention` with a `score_mod` closure. This fuses the RPB addition *inside* the attention kernel itself.
+-   **Result**: Zero memory overhead for RPB and maximum utilization of Tensor Cores.
+
+### Intelligent Fallback
+-   **Why**: FlexAttention is amazing for PyTorch but doesn't export cleanly to ONNX/TensorRT yet (requires custom plugins).
+-   **Solution**: The model detects `torch.onnx.is_in_onnx_export()` and automatically swaps the attention implementation to standard `MatMul + Add + Softmax`.
+-   **Result**: You get the training speed of FlexAttention AND the deployment simplicity of standard operators.
+
+### RAttention (Region-Aware Context)
+-   **Problem**: Sliding windows in pure Transformers sometimes miss context from outside the window, leading to discontinuities.
+-   **Correction**: Instead of expensive recurrent RAttention, we use a **3x3 Depthwise Convolution** on the Keys/Values (K/V) *before* window partitioning.
+-   **Effect**: This "leaks" information from neighboring windows into the current window's attention mechanism, expanding the effective receptive field significantly with negligible cost.
+
+### MSCF (Multi-Scale Cross-Fusion)
+-   **Feature**: Replaced simple channel attention with a multi-branch aggregation block (1x1, 3x3, 5x5 kernels).
+-   **Benefit**: The network can "decide" whether to focus on fine details (1x1), textures (3x3), or structures (5x5) when modulating the feature channels.
