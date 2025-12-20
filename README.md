@@ -18,75 +18,97 @@
 ```
 Path A (Base):   LR → MagicKernelSharp → Structural Anchor
 Path B (Detail): LR → Deep Body (LR Space) → PixelShuffle → Texture Residual
-Output = Base + (Detail × ContentGain × GlobalGain)
+Output = Base + (Detail × GlobalDetailGain)
 ```
 
-- **Path A** uses deterministic B-Spline interpolation to anchor structure, preventing geometry warping
-- **Path B** processes in efficient LR space before upsampling via PixelShuffle
+- **Path A** uses deterministic B-Spline interpolation to anchor structure, preventing geometry warping.
+- **Path B** processes in efficient LR space before upsampling via PixelShuffle.
 
 
-### 2. FlexAttention & RPB Fusion (Training Speed)
-**Verdict: "Implemented to Perfection"**
-By integrating `flex_attention` with the `score_mod` closure, we fuse the Relative Position Bias (RPB) directly into the attention kernel. This eliminates memory latency, achieving the **fastest possible attention calculation** on modern NVIDIA GPUs.
+### 2. Specialized Block Engines
+- **Realtime (Nano)**: MBConv-based for maximum throughput.
+- **Stream (Tiny)**: Multi-rate context gathering for de-blocking.
+- **Photo (Base)**: Hybrid Convolution + Selective Window Attention.
 
-### 3. "Intelligent Fallback" (Deployment)
-**Verdict: "Superior Engineering Choice"**
-The model automatically detects export modes (ONNX/TensorRT) and switches from FlexAttention to a standard `MatMul + Softmax` path. This guarantees 100% compatibility with all inference engines without custom plugins while maintaining training speed.
+### 3. Deployment-First Design
+**Verdict: "100% TensorRT Compatible"**
+The architecture is designed to avoid complex ops that break inference engines. It uses standard `PixelShuffle` and simplified `WindowAttention` to ensure immediate deployment on ONNX Runtime and TensorRT.
 
-### 4. RAttention (Region-Aware Context)
-**Verdict: "Smart, Highly Efficient"**
-Solves the "missing context" problem of local windows using a **CNN-based proxy** (3x3 Depthwise Conv on K/V) instead of slow recurrent units. This expands the effective receptive field with minimal overhead.
-
-### 5. Content-Aware Detail Gating (MSCF)
-**Verdict: "Architecturally Robust"**
-Uses **Multi-Scale Cross-Fusion (MSCF)** to aggregate features from 1x1, 3x3, and 5x5 kernels. This acts as a sophisticated gating mechanism to optimally combine fine and coarse textures.
-
-### 6. Progressive Upsampling
-For 4x/8x scales, uses multiple 2x stages with intermediate refinement to reduce checkerboard artifacts.
+### 4. FlexAttention Suite (Training Speed)
+**Verdict: "State of the Art"**
+By supporting `flex_attention`, the architecture achieves the fastest possible training on modern NVIDIA GPUs while falling back to standard SDPA for broad compatibility.
 
 ---
 
 ## 🚀 Model Variants
 
-| Variant | Code Name | Channels | Groups × Blocks | Block Type | Attention | Target |
-|---------|-----------|----------|-----------------|------------|-----------|--------|
-| **Realtime** | `paragonsr2_realtime` | 16 | 1 × 3 | MBConv | No | Video/Anime @ 60fps |
-| **Stream** | `paragonsr2_stream` | 32 | 2 × 3 | Gated FFN | No | Compressed video |
-| **Photo** | `paragonsr2_photo` | 64 | 4 × 4 | Paragon | Yes | General photography |
+| Variant | Code Name | Channels | Blocks | Block Type | Attention | Target |
+|---------|-----------|----------|--------|------------|-----------|--------|
+| **Realtime** | `paragonsr2_realtime` | 16 | 3 | Nano | No | Video/Anime @ 60fps+ |
+| **Stream** | `paragonsr2_stream` | 32 | 6 | Stream | No | Compressed video / HD |
+| **Photo** | `paragonsr2_photo` | 64 | 16 | Photo | Yes | General photography |
 
-> [!NOTE]
-> **Memory Optimized**: ParagonSR2 supports **Gradient Checkpointing** by default in training configs, allowing larger batches/models on consumer GPUs (e.g. 12GB+).
+---
+
+## 📊 Benchmark Results
+
+Benchmarked on **Urban100 (100 images, varied sizes)** at **2x Scale**.
+
+### Realtime Variant (`paragonsr2_realtime`)
+**Hardware:** NVIDIA GeForce RTX 3060 (11.6 GB)
+
+| Backend | Avg Latency | FPS | Peak VRAM |
+|---------|-------------|-----|-----------|
+| PyTorch FP32 | 84.4 ms | 11.8 | 0.25 GB |
+| PyTorch FP16 | 86.8 ms | 11.5 | 0.09 GB |
+| PyTorch FP16 (Compiled) | 46.6 ms | 21.5 | 0.08 GB |
+| **TensorRT FP16** | **2.3 ms** | **431.4** | **0.03 GB** |
+
+### Stream Variant (`paragonsr2_stream`)
+**Hardware:** NVIDIA GeForce RTX 3060 (11.6 GB)
+
+| Backend | Avg Latency | FPS | Peak VRAM |
+|---------|-------------|-----|-----------|
+| PyTorch FP32 | 217.3 ms | 4.6 | 0.49 GB |
+| PyTorch FP16 | 192.2 ms | 5.2 | 0.21 GB |
+| PyTorch FP16 (Compiled) | 96.7 ms | 10.3 | 0.17 GB |
+| **TensorRT FP16** | **10.0 ms** | **100.5** | **0.03 GB** |
 
 ---
 
 ## ⚡ Quick Start
 
-> [!IMPORTANT]
-> This architecture is designed for use with the **[TraiNNer-Redux](https://github.com/the-database/traiNNer-redux)** framework.
+### ONNX & TensorRT Export Flow
+To achieve the speeds shown above, follow this workflow:
 
-### Python Usage
-```python
-from traiNNer.archs.paragonsr2_arch import paragonsr2_photo
-
-# Create 2x upscaling model
-model = paragonsr2_photo(scale=2)
-
-# For fidelity training (pure reconstruction)
-model = paragonsr2_photo(scale=2, upsampler_alpha=0.0)
-
-# For GAN training (perceptual sharpening)
-model = paragonsr2_photo(scale=2, upsampler_alpha=0.4)
-```
-
-### ONNX Export
-See [scripts/README.md](scripts/README.md) for details on how to export models to ONNX/TensorRT.
-
+1. **Convert to ONNX**:
 ```bash
 python scripts/convert_onnx_release.py \
-    --checkpoint "models/paragonsr2_photo_x2.safetensors" \
-    --arch paragonsr2_photo \
+    --checkpoint "paragonsr2/2xParagonSR2_Stream_fidelity.safetensors" \
+    --arch paragonsr2_stream \
+    --output "paragonsr2_onnx" \
     --scale 2 \
-    --output "release_onnx"
+    --upsampler_alpha 0.0
+```
+
+2. **Build TensorRT Engine**:
+```bash
+trtexec --onnx=paragonsr2_onnx/paragonsr2_stream_fp32.onnx \
+        --saveEngine=paragonsr2_onnx/paragonsr2_stream_fp16.trt \
+        --fp16 \
+        --minShapes=input:1x3x64x64 \
+        --optShapes=input:1x3x720x1280 \
+        --maxShapes=input:1x3x1080x1920
+```
+
+3. **Run Benchmark**:
+```bash
+python scripts/benchmark_release.py \
+    --input /path/to/dataset \
+    --scale 2 \
+    --pt_model paragonsr2/2xParagonSR2_Stream_fidelity.safetensors \
+    --arch paragonsr2_stream \
+    --trt_engine paragonsr2_onnx/paragonsr2_stream_fp16.trt
 ```
 
 ---
@@ -96,10 +118,11 @@ python scripts/convert_onnx_release.py \
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `scale` | 4 | Upscaling factor (2, 3, 4, or 8) |
-| `upsampler_alpha` | 0.4 | Base path sharpening. `0.0` = pure reconstruction (PSNR), `0.3-0.6` = perceptual (GAN) |
-| `detail_gain` | 0.1 | Initial learnable multiplier for detail path magnitude |
-| `use_content_aware` | True | Enable content-aware gating (disable for Realtime) |
-| `use_checkpointing` | False | Enable activation checkpointing to save VRAM during training (slower but efficient) |
+| `upsampler_alpha` | 0.4 | Base path sharpening. `0.0` = Fidelity, `0.3-0.6` = GAN |
+| `detail_gain` | 0.1 | Initial learnable multiplier for the detail path |
+| `attention_mode` | 'sdpa' | Choice of attention kernel (`sdpa` or `flex`) |
+| `use_checkpointing` | False | Enable activation checkpointing to save VRAM |
+| `export_safe` | False | Disables attention ops specifically for restricted ONNX export |
 
 ---
 

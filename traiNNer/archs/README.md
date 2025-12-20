@@ -60,22 +60,21 @@ By using this as our minimal baseline, the network effectively learns "How to un
 The architecture is designed to scale from mobile devices to workstations.
 
 ### Realtime (Nano)
--   **Goal**: 60fps on mid-range GPUs.
--   **Tech**: Uses `MBConv` (Mobile Inverted Bottleneck Convolution).
+-   **Goal**: 60fps+ on mid-range GPUs.
+-   **Tech**: Uses `NanoBlock` (Simple MBConv).
 -   **Why**: Depthwise Separable Convolutions are extremely fast and memory efficient.
--   **Trade-off**: Lower capacity, struggles with complex textures.
+-   **Optimization**: Minimal overhead, no gating or attention.
 
 ### Stream (Tiny)
 -   **Goal**: High-quality video streaming/playback.
--   **Tech**: Uses `SimpleGateBlock` (Gated Feed-Forward Network).
--   **Why**: Gating mechanisms work exceptionally well for removing compression artifacts (de-blocking) without the computational cost of Attention.
+-   **Tech**: Uses `StreamBlock` (Multi-rate Depthwise Context).
+-   **Why**: Gating mechanisms combined with multi-stage context gathering work exceptionally well for removing compression artifacts (de-blocking) without the computational cost of Attention.
 
 ### Photo (Base)
 -   **Goal**: Best possible single-image restoration.
--   **Tech**: Uses `ParagonBlock` with **Shifted Window Attention**.
--   **Why**: Convolution (local) sees edges. Attention (global) sees patterns.
-    -   *Example*: Convolution sees a repeating line. Attention understands it's a "brick wall" and ensures the pattern continues consistently across the image.
-    -   **Swin-style Shift**: We alternate window shifts (0, window_size//2) to allow information to flow between windows, preventing grid artifacts in the attention map.
+-   **Tech**: Uses `PhotoBlock` with **Simplified Window Attention**.
+-   **Why**: Strong convolutional mixing followed by selective attention for long-range structural consistency.
+-   **Attention Options**: Supports standard SDPA for broad compatibility and FlexAttention for specialized PyTorch-only acceleration.
 
 ---
 
@@ -97,32 +96,25 @@ You can reference the variant directly in your YAML config:
 network_g:
   type: paragonsr2_photo
   scale: 4
-  upsampler_alpha: 0.5   # Tune this! 0.0=Soft, 1.0=SharpBase
-  upsampler_alpha: 0.5   # Tune this! 0.0=Soft, 1.0=SharpBase
+  upsampler_alpha: 0.4   # 0.0=Fidelity, 0.3-0.6=GAN
   use_checkpointing: true # Recommended for 12GB+ VRAM
 ```
 
 ---
 
-## 5. Version 7 Enhancements (Performance & Compatibility)
+## 5. Versions 8 & 9: The Streamlined Release
 
-The "v7" update introduced several focused improvements to maximize training throughput without breaking deployment compatibility.
+The final iterations focused on "Product-First" stability and performance, stripping away auxiliary complexity in favor of raw throughput and deployment reliability.
 
-### FlexAttention and RPB Fusion
--   **Why**: Calculating attention and *then* adding Relative Position Bias (RPB) involves creating large intermediate tensors, which slows down training.
--   **Solution**: We use `torch.nn.attention.flex_attention` with a `score_mod` closure. This fuses the RPB addition *inside* the attention kernel itself.
--   **Result**: Zero memory overhead for RPB and maximum utilization of Tensor Cores.
+### Deployment-First Window Attention
+-   **Simplified**: Window partitioning was refactored for maximum stability during ONNX export.
+-   **Flexible**: Added `attention_mode` flag. Defaults to `sdpa` (standard) but can be set to `flex` for PyTorch-native speedups.
+-   **Export Safe**: The `export_safe` flag disables attention entirely, allowing the Photo variant to be deployed on hardware that doesn't support modern attention ops.
 
-### Intelligent Fallback
--   **Why**: FlexAttention is amazing for PyTorch but doesn't export cleanly to ONNX/TensorRT yet (requires custom plugins).
--   **Solution**: The model detects `torch.onnx.is_in_onnx_export()` and automatically swaps the attention implementation to standard `MatMul + Add + Softmax`.
--   **Result**: You get the training speed of FlexAttention AND the deployment simplicity of standard operators.
+### Context over Complexity
+-   **Removed MSCF/RAttention Proxy**: While innovative, these modules added significant parameter count and latency. They were replaced by robust convolutional paths in `StreamBlock` and `PhotoBlock` that achieve similar quality with higher FPS.
+-   **Refined Gating**: Stream variant gating was simplified to a standard multiplication gate, reducing logic branches and aiding TorchScript/Inductor compilation.
 
-### RAttention (Region-Aware Context)
--   **Problem**: Sliding windows in pure Transformers sometimes miss context from outside the window, leading to discontinuities.
--   **Correction**: Instead of expensive recurrent RAttention, we use a **3x3 Depthwise Convolution** on the Keys/Values (K/V) *before* window partitioning.
--   **Effect**: This "leaks" information from neighboring windows into the current window's attention mechanism, expanding the effective receptive field significantly with negligible cost.
-
-### MSCF (Multi-Scale Cross-Fusion)
--   **Feature**: Replaced simple channel attention with a multi-branch aggregation block (1x1, 3x3, 5x5 kernels).
--   **Benefit**: The network can "decide" whether to focus on fine details (1x1), textures (3x3), or structures (5x5) when modulating the feature channels.
+### Universal Compatibility
+-   **PixelShuffle**: Replaced progressive upsampling stages with a single, highly-optimized PixelShuffle head for 2x/3x/4x/8x. This ensures 100% uniformity in output artifacts and simplifies TensorRT engine creation.
+-   **Legacy Mapping**: The release architecture includes a mapping layer to ensure compatibility with models trained on older versions (v7/v8), ensuring your progress isn't lost.

@@ -65,8 +65,22 @@ The road to the final **ParagonSR2** was paved with many experiments. This docum
 ### 9. `paragonsr2_arch_version7.py` (The Performance & Compatibility Update)
 *   **Focus**: Maximum training speed and seamless deployment.
 *   **Innovations**:
-    *   **FlexAttention Fusion**: Implemented fused RPB `score_mod` for fastest possible training on NVIDIA GPUs.
-    *   **Intelligent Fallback**: Automatic switch to standard Attention for ONNX export, ensuring zero-friction deployment.
-    *   **RAttention Proxy**: Replaced recurrent units with convolution-based "Region-Aware Context" (3x3 DW Conv on K/V) for stable context expansion.
-    *   **MSCF**: Introduced Multi-Scale Cross-Fusion to aggregate features from 1x1, 3x3, and 5x5 kernels.
-*   **Cleanup**: Removed the "Pro" variant to streamline the lineup around the most effective models (Realtime/Stream/Photo).
+    -   **FlexAttention Fusion**: Implemented fused RPB `score_mod` for fastest possible training on NVIDIA GPUs.
+    -   **Intelligent Fallback**: Automatic switch to standard Attention for ONNX export.
+    -   **RAttention Proxy**: Replaced recurrent units with convolution-based "Region-Aware Context" (3x3 DW Conv on K/V).
+    -   **MSCF**: Introduced Multi-Scale Cross-Fusion (1x1, 3x3, 5x5 kernels).
+
+### 10. `paragonsr2_arch_version8.py` (The Unified Refactor)
+*   **Focus**: Lineup cleanup and structural unity.
+*   **Change**: Refactored `ParagonBlock` to handle all variants more elegantly. 
+*   **Goal**: Prepare the codebase for final release by ensuring all variants share high-level logic while maintaining specialized low-level kernels.
+*   **Result**: A very stable but slightly heavy architecture file.
+
+### 11. `paragonsr2_arch_version9.py` (The Professional Polish - RELEASE)
+*   **Focus**: Extreme simplification and "Product-First" design.
+*   **Major Change**: Stripped away modules that didn't provide a massive quality-to-latency gain (Removed MSCF, RAttention Proxy, and Content-Aware Gating from the main path).
+*   **Tech**:
+    -   Refined **WindowAttention** for perfect ONNX export behavior.
+    -   Introduced **NanoBlock**, **StreamBlock**, and **PhotoBlock** as distinct, optimized engines.
+    -   Simplified **PixelShuffle** head for universal compatibility across all scales.
+*   **Outcome**: This is the version officially released in the main [traiNNer/archs/](traiNNer/archs/) folder. It represents the best balance of speed, quality, and deployment ease.

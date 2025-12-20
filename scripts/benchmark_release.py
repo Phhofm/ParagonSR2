@@ -64,6 +64,14 @@ try:
 except ImportError:
     HAS_TRT = False
 
+# Try importing FlexAttention (PyTorch 2.5+)
+try:
+    import torch.nn.attention.flex_attention as _flex_attention
+
+    HAS_FLEX = True
+except (ImportError, AttributeError):
+    HAS_FLEX = False
+
 
 # ---------------------------------------------------------------------
 # SYSTEM INFO
@@ -128,6 +136,9 @@ class PyTorchRunner:
         use_content_aware: bool | None = None,
         upsampler_alpha: float | None = None,
         detail_gain: float | None = None,
+        attention_mode: str | None = None,
+        export_safe: bool | None = None,
+        window_size: int | None = None,
     ) -> None:
         self.device = device
         self.scale = scale
@@ -145,7 +156,6 @@ class PyTorchRunner:
                 "paragonsr2_realtime": paragonsr2_arch.paragonsr2_realtime,
                 "paragonsr2_stream": paragonsr2_arch.paragonsr2_stream,
                 "paragonsr2_photo": paragonsr2_arch.paragonsr2_photo,
-                "paragonsr2_pro": paragonsr2_arch.paragonsr2_pro,
             }
             if arch not in arch_map:
                 raise ValueError(f"Unknown arch: {arch}")
@@ -161,6 +171,15 @@ class PyTorchRunner:
             if detail_gain is not None:
                 arch_kwargs["detail_gain"] = detail_gain
                 print(f"      Override: detail_gain={detail_gain}")
+            if attention_mode is not None:
+                arch_kwargs["attention_mode"] = attention_mode
+                print(f"      Override: attention_mode={attention_mode}")
+            if export_safe is not None:
+                arch_kwargs["export_safe"] = export_safe
+                print(f"      Override: export_safe={export_safe}")
+            if window_size is not None:
+                arch_kwargs["window_size"] = window_size
+                print(f"      Override: window_size={window_size}")
 
             model = arch_map[arch](**arch_kwargs)
 
@@ -175,15 +194,46 @@ class PyTorchRunner:
                 elif "params" in state_dict:
                     state_dict = state_dict["params"]
 
-            # Remove module. prefix
+            # ---------------------------------------------------------------------
+            # LEGACY KEY MAPPING (Sync with convert_onnx_release.py)
+            # ---------------------------------------------------------------------
             new_dict = {}
             for k, v in state_dict.items():
-                if k.startswith("module."):
-                    new_dict[k[7:]] = v
-                else:
-                    new_dict[k] = v
+                # Strip 'module.' prefix (DDP)
+                new_k = k[7:] if k.startswith("module.") else k
 
-            model.load_state_dict(new_dict, strict=True)
+                # 1. Base Upsampler rebranding
+                new_k = new_k.replace("base_upsampler.resample_conv.", "base.blur.")
+                new_k = new_k.replace("base_upsampler.sharpen.", "base.sharp.")
+
+                # 2. Resampler sub-key mapping
+                if new_k.startswith("base."):
+                    new_k = new_k.replace(".conv_h.", ".h.")
+                    new_k = new_k.replace(".conv_v.", ".v.")
+
+                # 3. Block Structure
+                if ".blocks." in new_k and ".net." in new_k:
+                    new_k = new_k.replace(".net.0.", ".conv1.")
+                    new_k = new_k.replace(".net.2.", ".dw.")
+                    new_k = new_k.replace(".net.4.", ".conv2.")
+
+                # 4. Global Gain
+                new_k = new_k.replace("global_detail_gain", "detail_gain")
+
+                # 5. Detail Upsampler
+                new_k = new_k.replace("detail_upsampler.up_conv.", "up.0.")
+
+                # 6. Global Fusing
+                new_k = new_k.replace("conv_fuse.", "conv_mid.")
+
+                new_dict[new_k] = v
+
+            missing, _unexpected = model.load_state_dict(new_dict, strict=False)
+            if missing:
+                print(f"      [WARNING] Missing keys: {len(missing)}")
+            if not missing:
+                print("      Weights loaded successfully.")
+
             model.to(device).eval()
 
             # Optimization: channels last
@@ -194,6 +244,8 @@ class PyTorchRunner:
             # Count parameters
             params = sum(p.numel() for p in model.parameters())
             print(f"      Parameters: {params:,}")
+
+            self.is_compiled = False
 
         except Exception as e:
             print(f"[PyTorch] Error loading model: {e}")
@@ -206,6 +258,13 @@ class PyTorchRunner:
                     return self.model(img_tensor)
             else:
                 return self.model(img_tensor)
+
+    def compile_model(self) -> None:
+        """Apply torch.compile to the model."""
+        print("      Compiling model (mode='reduce-overhead', dynamic=True)...")
+        # reduce-overhead is more stable than max-autotune for varying shapes on mid-range GPUs
+        self.model = torch.compile(self.model, mode="reduce-overhead", dynamic=True)
+        self.is_compiled = True
 
 
 # ---------------------------------------------------------------------
@@ -253,9 +312,10 @@ def benchmark_pytorch(
     scale: int,
     use_amp: bool = False,
     device: str = "cuda",
+    mode_suffix: str = "",
 ) -> dict:
     """Benchmark PyTorch model."""
-    mode = "PyTorch FP16" if use_amp else "PyTorch FP32"
+    mode = ("PyTorch FP16" if use_amp else "PyTorch FP32") + mode_suffix
     print(f"\n--- Benchmarking {mode} ---")
 
     latencies = []
@@ -280,7 +340,13 @@ def benchmark_pytorch(
         image_sizes.append((h, w))
 
         img_t = torch.from_numpy(img).to(device).float().permute(2, 0, 1).unsqueeze(0)
-        img_t = img_t.div_(255.0).to(memory_format=torch.channels_last)
+        img_t = img_t.div_(255.0)
+
+        # Compiled models (Inductor) can be unstable with dynamic + channels_last
+        if getattr(runner, "is_compiled", False):
+            img_t = img_t.contiguous()
+        else:
+            img_t = img_t.to(memory_format=torch.channels_last)
 
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
@@ -437,6 +503,30 @@ def main() -> None:
         help="Override detail_gain setting",
     )
 
+    parser.add_argument(
+        "--attention_mode",
+        type=str,
+        default=None,
+        help="Override attention_mode (sdpa, flex, none)",
+    )
+    parser.add_argument(
+        "--export_safe",
+        type=lambda x: x.lower() in ("true", "1", "yes"),
+        default=None,
+        help="Override export_safe setting (true/false)",
+    )
+    parser.add_argument(
+        "--window_size",
+        type=int,
+        default=None,
+        help="Override window_size",
+    )
+    parser.add_argument(
+        "--benchmark_attention_modes",
+        action="store_true",
+        help="If set, benchmarks No-Attn, SDPA, and Flex variants automatically (for Photo arch).",
+    )
+
     args = parser.parse_args()
 
     # Collect images
@@ -457,25 +547,95 @@ def main() -> None:
 
     # PyTorch Benchmarks
     if args.pt_model and args.arch:
-        pt_runner = PyTorchRunner(
-            args.pt_model,
-            args.arch,
-            args.scale,
-            use_content_aware=args.use_content_aware,
-            upsampler_alpha=args.upsampler_alpha,
-            detail_gain=args.detail_gain,
-        )
+        # Helper to run a config
+        def run_config(attn_mode=None, exp_safe=None, label_suffix=""):
+            runner = PyTorchRunner(
+                args.pt_model,
+                args.arch,
+                args.scale,
+                use_content_aware=args.use_content_aware,
+                upsampler_alpha=args.upsampler_alpha,
+                detail_gain=args.detail_gain,
+                # New overrides
+                attention_mode=attn_mode
+                if attn_mode is not None
+                else args.attention_mode,
+                export_safe=exp_safe if exp_safe is not None else args.export_safe,
+                window_size=args.window_size,
+            )
+            # FP16 (AMP) benchmark only for speed comparisons
+            res = benchmark_pytorch(
+                runner, images, args.scale, use_amp=True, mode_suffix=label_suffix
+            )
+            del runner
+            torch.cuda.empty_cache()
+            return res
 
-        # FP32 benchmark
-        results.append(benchmark_pytorch(pt_runner, images, args.scale, use_amp=False))
-        torch.cuda.empty_cache()
+        if args.benchmark_attention_modes and "photo" in args.arch:
+            print("\n>>> Running Attention Mode Comparison Suite <<<")
 
-        # FP16 (AMP) benchmark
-        results.append(benchmark_pytorch(pt_runner, images, args.scale, use_amp=True))
-        torch.cuda.empty_cache()
+            # 1. No Attention (Export Safe)
+            print("1. Testing: No Attention (Export Safe aka CNN-only)")
+            results.append(
+                run_config(attn_mode="sdpa", exp_safe=True, label_suffix=" (No Attn)")
+            )
 
-        del pt_runner
-        torch.cuda.empty_cache()
+            # 2. SDPA
+            print("2. Testing: SDPA (Standard)")
+            results.append(
+                run_config(attn_mode="sdpa", exp_safe=False, label_suffix=" (SDPA)")
+            )
+
+            # 3. FlexAttention
+            if HAS_FLEX:
+                print("3. Testing: FlexAttention")
+                results.append(
+                    run_config(attn_mode="flex", exp_safe=False, label_suffix=" (Flex)")
+                )
+            else:
+                print("3. FlexAttention skipped (not available in this PyTorch build).")
+
+        else:
+            # Standard single run logic
+            pt_runner = PyTorchRunner(
+                args.pt_model,
+                args.arch,
+                args.scale,
+                use_content_aware=args.use_content_aware,
+                upsampler_alpha=args.upsampler_alpha,
+                detail_gain=args.detail_gain,
+                attention_mode=args.attention_mode,
+                export_safe=args.export_safe,
+                window_size=args.window_size,
+            )
+
+            # FP32 benchmark
+            results.append(
+                benchmark_pytorch(pt_runner, images, args.scale, use_amp=False)
+            )
+            torch.cuda.empty_cache()
+
+            # FP16 (AMP) benchmark
+            results.append(
+                benchmark_pytorch(pt_runner, images, args.scale, use_amp=True)
+            )
+            torch.cuda.empty_cache()
+
+            # Compiled Benchmark (Future Proofing Speed Check)
+            # Note: First run will include compilation time, so we need a warmup
+            pt_runner.compile_model()
+            results.append(
+                benchmark_pytorch(
+                    pt_runner,
+                    images,
+                    args.scale,
+                    use_amp=True,
+                    mode_suffix=" (Compiled)",
+                )
+            )
+            torch.cuda.empty_cache()
+            del pt_runner
+            torch.cuda.empty_cache()
 
     # TensorRT Benchmark
     if args.trt_engine:

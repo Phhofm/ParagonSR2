@@ -13,15 +13,15 @@ Features:
 
 Usage:
     python convert_onnx_release.py \
-        --checkpoint "models/paragon_photo_x4.safetensors" \
-        --arch paragonsr2_photo \
+        --checkpoint "models/paragon_pro_x4.safetensors" \
+        --arch paragonsr2_pro \
         --scale 4 \
         --output "release_output" \
         --device cuda
 
     # Then build TRT engine:
-    trtexec --onnx=release_output/paragonsr2_photo_fp32.onnx \
-            --saveEngine=paragonsr2_photo_fp16.trt \
+    trtexec --onnx=release_output/paragonsr2_pro_fp32.onnx \
+            --saveEngine=paragonsr2_pro_fp16.trt \
             --fp16 \
             --minShapes=input:1x3x64x64 \
             --optShapes=input:1x3x720x1280 \
@@ -59,7 +59,6 @@ try:
         "paragonsr2_realtime": paragonsr2_arch.paragonsr2_realtime,
         "paragonsr2_stream": paragonsr2_arch.paragonsr2_stream,
         "paragonsr2_photo": paragonsr2_arch.paragonsr2_photo,
-
     }
 
 except ImportError:
@@ -193,6 +192,18 @@ class ParagonConverter:
             arch_kwargs["detail_gain"] = self.args.detail_gain
             print(f"      Override: detail_gain={self.args.detail_gain}")
 
+        if self.args.attention_mode is not None:
+            arch_kwargs["attention_mode"] = self.args.attention_mode
+            print(f"      Override: attention_mode={self.args.attention_mode}")
+
+        if self.args.export_safe is not None:
+            arch_kwargs["export_safe"] = self.args.export_safe
+            print(f"      Override: export_safe={self.args.export_safe}")
+
+        if self.args.window_size is not None:
+            arch_kwargs["window_size"] = self.args.window_size
+            print(f"      Override: window_size={self.args.window_size}")
+
         model = arch_fn(**arch_kwargs)
 
         print(f"      Loading weights: {self.args.checkpoint}")
@@ -207,15 +218,78 @@ class ParagonConverter:
             elif "params" in state_dict:
                 state_dict = state_dict["params"]
 
-        # Handle 'module.' prefix if from DDP
+        # ---------------------------------------------------------------------
+        # LEGACY KEY MAPPING (Backwards Compatibility)
+        # ---------------------------------------------------------------------
         new_dict = {}
         for k, v in state_dict.items():
+            # Strip 'module.' prefix (DDP)
             if k.startswith("module."):
-                new_dict[k[7:]] = v
-            else:
-                new_dict[k] = v
+                k = k[7:]
 
-        model.load_state_dict(new_dict, strict=True)
+            # 1. Base Upsampler rebranding
+            # base_upsampler.resample_conv -> base.blur
+            # base_upsampler.sharpen -> base.sharp
+            k = k.replace("base_upsampler.resample_conv.", "base.blur.")
+            k = k.replace("base_upsampler.sharpen.", "base.sharp.")
+
+            # 2. Resampler sub-key mapping (SeparableConv)
+            # conv_h -> h, conv_v -> v
+            if k.startswith("base."):
+                k = k.replace(".conv_h.", ".h.")
+                k = k.replace(".conv_v.", ".v.")
+
+            # 3. Block Structure (NanoBlock/PhotoBlock/StreamBlock)
+            # body.0.blocks.0.net.0.weight -> body.0.blocks.0.conv1.weight
+            # body.0.blocks.0.net.2.weight -> body.0.blocks.0.dw.weight
+            # body.0.blocks.0.net.4.weight -> body.0.blocks.0.conv2.weight
+            if ".blocks." in k and ".net." in k:
+                k = k.replace(".net.0.", ".conv1.")
+                k = k.replace(".net.2.", ".dw.")
+                k = k.replace(".net.4.", ".conv2.")
+
+            # 4. Global Gain
+            # global_detail_gain -> detail_gain
+            k = k.replace("global_detail_gain", "detail_gain")
+
+            # 5. Detail Upsampler
+            # detail_upsampler.up_conv -> up.0
+            k = k.replace("detail_upsampler.up_conv.", "up.0.")
+
+            # 6. Global Fusing
+            # conv_fuse -> conv_mid (standard naming)
+            k = k.replace("conv_fuse.", "conv_mid.")
+
+            new_dict[k] = v
+
+        # Load with diagnostics
+        missing, unexpected = model.load_state_dict(new_dict, strict=False)
+
+        if missing:
+            print(f"      [WARNING] Missing keys: {len(missing)}")
+            for m in missing[:5]:
+                print(f"        - {m}")
+            if len(missing) > 5:
+                print(f"        - ... (+{len(missing) - 5} more)")
+
+        if unexpected:
+            print(f"      [WARNING] Unexpected keys: {len(unexpected)}")
+            for u in unexpected[:5]:
+                print(f"        - {u}")
+            if len(unexpected) > 5:
+                print(f"        - ... (+{len(unexpected) - 5} more)")
+
+        if not missing and not unexpected:
+            print("      Weights loaded perfectly.")
+        elif not missing:
+            print(
+                "      Weights loaded successfully (with minor unexpected keys ignored)."
+            )
+        else:
+            print(
+                "      [CAUTION] Some keys were missing. Resulting ONNX may be broken."
+            )
+
         model.to(self.device).eval()
 
         # Optimization hooks
@@ -370,6 +444,24 @@ if __name__ == "__main__":
         type=float,
         default=None,
         help="Override detail_gain setting",
+    )
+    parser.add_argument(
+        "--attention_mode",
+        type=str,
+        default=None,
+        help="Override attention_mode (sdpa, flex, none)",
+    )
+    parser.add_argument(
+        "--export_safe",
+        type=lambda x: x.lower() in ("true", "1", "yes"),
+        default=None,
+        help="Override export_safe setting (true/false)",
+    )
+    parser.add_argument(
+        "--window_size",
+        type=int,
+        default=None,
+        help="Override window_size",
     )
 
     args = parser.parse_args()
