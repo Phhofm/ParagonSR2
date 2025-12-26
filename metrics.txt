@@ -1,0 +1,21 @@
+(venv) phips@NZXT:~/Documents/GitHub/traiNNer-redux$ python scripts/paragonsr2/run_inference.py --input /home/phips/Documents/dataset/Urban100/x2 --model ./paragonsr2/2xParagonSR2_Photo_fidelity.safetensors --arch paragonsr2_photo --output /home/phips/Documents/dataset/Urban100/upscaled --upsampler_alpha 0.0 --scale 2
+
+(venv) phips@NZXT:~/Documents/GitHub/traiNNer-redux$ pyiqa psnry ssim lpips topiq_fr -t /home/phips/Documents/GitHub/paragonsr2/Urban100_x2_2xParagonSR2_photo_fidelity_fp32 -r /home/phips/Documents/GitHub/paragonsr2/Urban100_hr --device cuda
+[2025-12-24 13:25:52] ===> Loading metrics: ['psnry', 'ssim', 'lpips', 'topiq_fr']
+Loading pretrained model LPIPS from /home/phips/.cache/torch/hub/pyiqa/LPIPS_v0.1_alex-df73285e.pth
+Loading pretrained model CFANet from /home/phips/.cache/torch/hub/pyiqa/cfanet_fr_kadid_res50-2c4cc61d.pth
+[2025-12-24 13:25:54] ===> Metrics loaded: ['psnry', 'ssim', 'lpips', 'topiq_fr']
+[2025-12-24 13:25:58] Testing psnry with input /home/phips/Documents/GitHub/para
+[2025-12-24 13:26:05] Testing ssim with input /home/phips/Documents/GitHub/parag
+[2025-12-24 13:26:10] Testing lpips with input /home/phips/Documents/GitHub/para
+[2025-12-24 13:26:22] Testing topiq_fr with input /home/phips/Documents/GitHub/p
+{'lpips': {'mean': np.float64(0.06801249897573143)},
+ 'psnry': {'mean': np.float64(30.68964084625244)},
+ 'ssim': {'mean': np.float64(0.9220593834266263)},
+ 'topiq_fr': {'mean': np.float64(0.8755725204944611)}}
+
+
+
+fp16, since trained with amp / fp16
+
+

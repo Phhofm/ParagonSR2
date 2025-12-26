@@ -74,6 +74,22 @@ Benchmarked on **Urban100 (100 images, varied sizes)** at **2x Scale**.
 | PyTorch FP16 (Compiled) | 96.7 ms | 10.3 | 0.17 GB |
 | **TensorRT FP16** | **10.0 ms** | **100.5** | **0.03 GB** |
 
+## Benchmark: `paragonsr2_photo` (2x)
+
+**Hardware:** NVIDIA GeForce RTX 3060 (11.6 GB)  
+**Dataset:** Urban100 LRx2 (100 images, varied sizes)
+
+| Backend | Avg Latency | FPS | Peak VRAM |
+|---------|-------------|-----|-----------|
+| PyTorch FP16 (No Attn) | 159.2 ms | 6.3 | 0.42 GB |
+| PyTorch FP16 (No Attn) (Compiled) | 164.6 ms | 6.1 | 0.38 GB |
+| PyTorch FP16 (SDPA) | 171.1 ms | 5.8 | 0.65 GB |
+| PyTorch FP16 (SDPA) (Compiled) | 97.6 ms | 10.3 | 0.39 GB |
+| PyTorch FP16 (Flex) | 1061.7 ms | 0.9 | 4.50 GB |
+| PyTorch FP16 (Flex) (Compiled) | 85.3 ms | 11.7 | 0.39 GB |
+| TensorRT FP16 | 39.5 ms | 25.3 | 0.03 GB |
+
+
 ---
 
 ## ⚡ Quick Start
@@ -88,8 +104,15 @@ python scripts/convert_onnx_release.py \
     --arch paragonsr2_stream \
     --output "paragonsr2_onnx" \
     --scale 2 \
-    --upsampler_alpha 0.0
+    --upsampler_alpha 0.0 \
+    --dynamic \
+    --val_dir /home/phips/Documents/dataset/Urban100/HR \
+    --export_safe true
 ```
+
+If creating onnx for video purposes, add --video flag to enable temporal consistency.
+
+Upsampler alpha is set to 0.0 for fidelity, but you can adjust it to 0.3-0.6 for GAN-like sharpening or just use and leave defaults.
 
 2. **Build TensorRT Engine**:
 ```bash
@@ -100,6 +123,26 @@ trtexec --onnx=paragonsr2_onnx/paragonsr2_stream_fp32.onnx \
         --optShapes=input:1x3x720x1280 \
         --maxShapes=input:1x3x1080x1920
 ```
+Building dynamic tensorRT engine for photo variant is pretty demanding, so with my rtx 3060 12gb vram i went with this command:
+
+trtexec --onnx=release_onnx/paragonsr2_photo_fp32.onnx \
+        --saveEngine=release_onnx/paragonsr2_photo_fp16.trt \
+        --fp16 \
+        --minShapes=input:1x3x64x64 \
+        --optShapes=input:1x3x512x512 \
+        --maxShapes=input:1x3x720x720 \
+        --memPoolSize=workspace:4096
+
+
+If onnx was created with --video for temporal consistency, run with additional prev_feat input:
+
+trtexec --onnx=release_onnx/paragonsr2_photo_fp32.onnx \
+        --saveEngine=release_onnx/paragonsr2_photo_fp16.trt \
+        --fp16 \
+        --minShapes=input:1x3x64x64,prev_feat:1x64x64x64 \
+        --optShapes=input:1x3x512x512,prev_feat:1x64x512x512 \
+        --maxShapes=input:1x3x720x720,prev_feat:1x64x720x720 \
+        --memPoolSize=workspace:4096
 
 3. **Run Benchmark**:
 ```bash
@@ -172,15 +215,6 @@ All development, training, testing, and benchmarking for ParagonSR2 was performe
 - **CPU**: AMD Ryzen 5 3600 (6-core)
 - **RAM**: 16 GB DDR4
 - **OS**: Ubuntu 24.10
-
-### TensorRT Deployment Targets (RTX 3060)
-Using `trtexec`, these models achieve incredible speeds on the 3060:
-
-| Variant | Target FPS | Input | Max Shape |
-|---------|------------|-------|-----------|
-| **Realtime** | ~370 FPS | 1080p | 1080x1080 |
-| **Stream** | ~118 FPS | 720p | 1024x1024 |
-| **Photo** | ~60 FPS | 360p | 720x720 |
 
 ---
 
