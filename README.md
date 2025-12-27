@@ -45,12 +45,12 @@ The latest version 11 introduces **Token Dictionary Cross-Attention** (for globa
 
 ## 🚀 Model Variants
 
-| Variant | Code Name | Channels | Blocks | Block Type | Attention | Target |
-|---------|-----------|----------|--------|------------|-----------|--------|
-| **Realtime** | `paragonsr2_realtime` | 16 | 3 | Nano | No | Video/Anime @ 60fps+ |
-| **Stream** | `paragonsr2_stream` | 32 | 6 | Stream | No | Compressed video / HD |
-| **Photo** | `paragonsr2_photo` | 64 | 16 | Photo | Yes | General photography |
-| **Pro** | `paragonsr2_pro` | 64 | 36 | Pro | Yes | Scientific / Archival / SOTA |
+| Variant | Code Name | Parameters | Channels | Blocks | Block Type | Attention | Target |
+|---------|-----------|------------|----------|--------|------------|-----------|--------|
+| **Realtime** | `paragonsr2_realtime` | 44,620 | 16 | 3 | Nano | No | Video/Anime |
+| **Stream** | `paragonsr2_stream` | 221,068 | 32 | 6 | Stream | No | Compressed video / HD |
+| **Photo** | `paragonsr2_photo` | 1,188,428 | 64 | 16 | Photo | Yes | General photography |
+| **Pro** | `paragonsr2_pro` | 2,436,556 | 64 | 36 | Pro | Yes | Scientific / Archival / SOTA |
 
 ---
 

@@ -57,7 +57,14 @@ By using this as our minimal baseline, the network effectively learns "How to un
 
 ## 3. Architecture Variants Explained
 
-The architecture is designed to scale from mobile devices to workstations.
+The architecture is designed to scale from modern mobile devices to archival-grade workstations.
+
+| Variant | Blocks | Parameters | Block Type |
+|---------|--------|------------|------------|
+| Realtime | 3 | 44,620 | Nano |
+| Stream | 6 | 221,068 | Stream |
+| Photo | 16 | 1,188,428 | Photo |
+| Pro | 36 | 2,436,556 | Pro |
 
 ### Realtime (Nano)
 -   **Goal**: 60fps+ on mid-range GPUs.
