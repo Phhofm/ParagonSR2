@@ -29,14 +29,17 @@ Output = Base + (Detail × GlobalDetailGain)
 - **Realtime (Nano)**: MBConv-based for maximum throughput.
 - **Stream (Tiny)**: Multi-rate context gathering for de-blocking.
 - **Photo (Base)**: Hybrid Convolution + Selective Window Attention.
+- **Pro (State-of-the-Art)**: Comprehensive engine with local/global attention and deep body.
 
 ### 3. Deployment-First Design
 **Verdict: "100% TensorRT Compatible"**
 The architecture is designed to avoid complex ops that break inference engines. It uses standard `PixelShuffle` and simplified `WindowAttention` to ensure immediate deployment on ONNX Runtime and TensorRT.
 
 ### 4. FlexAttention Suite (Training Speed)
-**Verdict: "State of the Art"**
 By supporting `flex_attention`, the architecture achieves the fastest possible training on modern NVIDIA GPUs while falling back to standard SDPA for broad compatibility.
+
+### 5. Version 11 Quality Boost
+The latest version 11 introduces **Token Dictionary Cross-Attention** (for global texture understanding) and extreme depth (36 blocks) for the Pro variant, pushing the boundaries of what's possible on consumer hardware.
 
 ---
 
@@ -47,6 +50,7 @@ By supporting `flex_attention`, the architecture achieves the fastest possible t
 | **Realtime** | `paragonsr2_realtime` | 16 | 3 | Nano | No | Video/Anime @ 60fps+ |
 | **Stream** | `paragonsr2_stream` | 32 | 6 | Stream | No | Compressed video / HD |
 | **Photo** | `paragonsr2_photo` | 64 | 16 | Photo | Yes | General photography |
+| **Pro** | `paragonsr2_pro` | 64 | 36 | Pro | Yes | Scientific / Archival / SOTA |
 
 ---
 
@@ -223,7 +227,7 @@ All development, training, testing, and benchmarking for ParagonSR2 was performe
 The development of ParagonSR2 was highly iterative and explored many "what if" scenarios. This exploration was supercharged by next-gen AI coding assistants.
 
 **Models & Tools used during development:**
-- **Models**: MiniMax-M2, Gemini 3 Pro, Claude Opus 4.5 Thinking, Claude Sonnet 4.5 Thinking, Gemini 2.5 Pro, Gemini Flash Deep Research, Grok Code Fast, GPT's and more.
+- **Models**: MiniMax-M2, Gemini 3 Pro, Gemini 3 Flash, Claude Opus 4.5 Thinking, Claude Sonnet 4.5 Thinking, Gemini 2.5 Pro, Gemini Flash Deep Research, Grok Code Fast, GPT's and more.
 - **Platforms**: Antigravity, Kilo Code, OpenRouter.
 
 These tools helped prototype weird ideas (like "what if we mix ConvNext with Swin but run it in LR space?") rapidly, allowing me to filter out bad architectural decisions much faster than traditional coding.

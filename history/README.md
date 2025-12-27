@@ -84,3 +84,11 @@ The road to the final **ParagonSR2** was paved with many experiments. This docum
     -   Introduced **NanoBlock**, **StreamBlock**, and **PhotoBlock** as distinct, optimized engines.
     -   Simplified **PixelShuffle** head for universal compatibility across all scales.
 *   **Outcome**: This is the version officially released in the main [traiNNer/archs/](traiNNer/archs/) folder. It represents the best balance of speed, quality, and deployment ease.
+### 12. `paragonsr2_arch_version11.py` (The Universal Quality & Stability Update)
+*   **Focus**: State-of-the-Art PSNR/SSIM across ALL image types and extreme training stability.
+*   **Major Change**: Introduced the **Pro Tier** and high-depth configurations (up to 36 blocks).
+*   **Innovations**:
+    -   **ProBlock**: A "universal engine" combining Conv, SE Channel Attention, Window Attention (local structure), and Token Dictionary CA (global textures).
+    -   **Numerical Stability**: Switched to `RMSNorm` with FP32 variance calculation and added `LayerScale` to every block to enable stable training of very deep networks.
+    -   **TokenDictionaryCA**: A simplified cross-attention module that attends to a learned global dictionary of "visual concepts," helping the network reconstruct complex repeating patterns.
+*   **Outcome**: This is the current state-of-the-art branch. It provides a significant quality jump over version 9/10, especially for challenging archival or scientific content, while remaining highly stable during training.

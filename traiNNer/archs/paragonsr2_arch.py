@@ -3,15 +3,20 @@
 ParagonSR2
 ==========
 
-A dual-path, convolution-first SISR architecture with selective local attention and deployment-first design.
+A dual-path, convolution-first Single Image Super-Resolution (SISR) architecture
+designed for maximum deployment flexibility and state-of-the-art visual quality.
 
 Key principles:
-- Dual-path reconstruction (fixed classical base + learned residual detail)
-- Variant specialization (Realtime / Stream / Photo)
-- Convolution-first design with selective attention
-- Export- and deployment-friendly (ONNX / TensorRT / FP16)
-- Stable eager execution
-- Optional PyTorch-only inference optimizations
+- **Dual-path Reconstruction**: Combines a fixed, artifact-free classical base (MKS21)
+  with a deep neural branch that learns only the high-frequency residual details.
+- **Variant Specialization**: Four balanced tiers (Realtime, Stream, Photo, Pro)
+  tailored for different hardware constraints and quality requirements.
+- **Selective Attention**: Strategic use of local window attention and global token
+  dictionaries to capture both structural consistency and repeating textures.
+- **Deployment-First Design**: Native support for FP16, ONNX, and TensorRT. Avoids
+  unstable or hardware-incompatible operations where possible.
+- **Stability**: Uses RMSNorm and LayerScale to ensure robust convergence even in
+  very deep configurations (e.g., the 36-block Pro variant).
 
 Author: Philip Hofmann
 License: MIT
@@ -42,16 +47,17 @@ def to_2tuple(x: int | tuple[int, int]) -> tuple[int, int]:
 
 def get_magic_kernel_weights():
     """
-    Low-pass reconstruction kernel from Costella's Magic Kernel.
+    Returns the 5-tap weights for the standard Magic Kernel.
+    Used as the low-pass reconstruction component in the MKS21 upsampler.
     """
     return torch.tensor([1 / 16, 4 / 16, 6 / 16, 4 / 16, 1 / 16])
 
 
 def get_magic_sharp_2021_kernel_weights():
-    """Returns the weights for the Magic Kernel Sharp 2021 (MKS21) 3-tap filter."""
-    # Weights: [-0.015, 0.138, -0.015] -> [0.138, 0.862, 0.138] unnormalized?
-    # Actually MKS2021 is usually approximating Lanczos3 or Catmull-Rom.
-    # Here we use a standard sharp bicubic-like approximation.
+    """
+    Returns the 7-tap weights for the Magic Kernel Sharp 2021 (MKS21) filter.
+    Provides a sharp, aliasing-resistant reconstruction base.
+    """
     return torch.tensor([-1 / 32, 0, 9 / 32, 16 / 32, 9 / 32, 0, -1 / 32])
 
 
@@ -138,12 +144,15 @@ class RMSNorm(nn.Module):
 
     def __init__(self, channels: int, eps: float = 1e-6) -> None:
         super().__init__()
+        # Learnable scaling factor (per channel) to recover expressive power
         self.scale = nn.Parameter(torch.ones(channels, 1, 1))
+        # Optional bias term for flexibility
         self.bias = nn.Parameter(torch.zeros(channels, 1, 1))
         self.eps = eps
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Calculate variance in FP32 for stability, then cast back
+        # We calculate variance in FP32 to prevent overflow/underflow issues,
+        # which is common in deep SR networks trained in FP16/AMP.
         x_f32 = x.float()
         variance = x_f32.pow(2).mean(dim=1, keepdim=True)
         rms = torch.sqrt(variance + self.eps).to(x.dtype)
@@ -197,20 +206,24 @@ class WindowAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Input x: (B, H, W, C)
+        Returns: (B, H, W, C)
+        """
         B, H, W, C = x.shape
 
-        # Pad features to multiples of window size
+        # Pad features to multiples of window size to ensure uniform windowing
         pad_h = (self.window_size - H % self.window_size) % self.window_size
         pad_w = (self.window_size - W % self.window_size) % self.window_size
         x = F.pad(x, (0, 0, 0, pad_w, 0, pad_h))
         Hp, Wp = x.shape[1], x.shape[2]
 
-        # Cyclic Shift
+        # Cyclic Shift: Moves features across window boundaries to enable
+        # interaction between adjacent windows in the next layer.
         if self.shift_size > 0:
             x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
 
-        # Partition windows
-        # (B, Hp, Wp, C) -> (B, h_win, w_win, ws, ws, C)
+        # Partition windows: (B, Hp, Wp, C) -> (num_windows*B, ws, ws, C)
         x_windows = x.view(
             B,
             Hp // self.window_size,
@@ -226,11 +239,11 @@ class WindowAttention(nn.Module):
             -1, self.window_size * self.window_size, C
         )  # (num_windows, ws*ws, C)
 
-        # Attention
+        # qkv: (num_windows, N, 3*C)
         qkv = self.qkv(x_windows)
         q, k, v = qkv.chunk(3, dim=-1)  # (num_windows, N, C)
 
-        # Multi-head split
+        # Multi-head split: (num_windows, N, C) -> (num_windows, heads, N, head_dim)
         q = q.view(
             -1, self.window_size * self.window_size, self.num_heads, C // self.num_heads
         ).transpose(1, 2)
@@ -242,7 +255,8 @@ class WindowAttention(nn.Module):
         ).transpose(1, 2)
 
         if self.attention_mode == "flex":
-            # We rely on dynamic import or assuming it's available if this mode is picked
+            # FlexAttention is a highly optimized backend available in recent PyTorch.
+            # It provides better performance for various attention patterns.
             try:
                 from torch.nn.attention.flex_attention import flex_attention
             except ImportError:
@@ -251,7 +265,8 @@ class WindowAttention(nn.Module):
                 )
             x_windows = flex_attention(q, k, v)
         else:
-            # Standard SDPA
+            # Standard Scaled Dot Product Attention (SDPA).
+            # Hardware-accelerated (FlashAttention/Memory-Efficient) if possible.
             x_windows = F.scaled_dot_product_attention(q, k, v)
 
         x_windows = (
@@ -261,7 +276,7 @@ class WindowAttention(nn.Module):
         )
         x_windows = self.proj(x_windows)
 
-        # Reverse Partition
+        # Reverse Partition: (num_windows*B, ws*ws, C) -> (B, Hp, Wp, C)
         x_windows = x_windows.view(-1, self.window_size, self.window_size, C)
         x = x_windows.view(
             B,
@@ -273,10 +288,11 @@ class WindowAttention(nn.Module):
         )
         x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, Hp, Wp, C)
 
-        # Reverse Shift
+        # Reverse Shift: Restore original feature alignment
         if self.shift_size > 0:
             x = torch.roll(x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
 
+        # Remove padding
         if pad_h > 0 or pad_w > 0:
             x = x[:, :H, :W, :]
 
@@ -300,8 +316,11 @@ class NanoBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         res = x
+        # 1x1 Conv for channel expansion -> 3x3 Depthwise Conv -> GELU
         x = F.gelu(self.dw(self.conv1(x)))
+        # 1x1 Conv back to original dimension
         x = self.conv2(x)
+        # Residual connection with LayerScale for stability
         return self.scale(x) + res
 
 
@@ -330,20 +349,23 @@ class StreamBlock(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         res = x
 
-        # Multi-scale feature extraction
+        # Multi-scale feature extraction: Combines standard 3x3 context with
+        # a dilated 3x3 (effective 7x7) context for broader awareness.
         x = torch.cat([self.dw1(x), self.dw3(x)], dim=1)
         x = self.fuse(x)
 
-        # Gated Feed Forward
+        # Gated Feed Forward: Learns to selectively suppress or amplify features.
         x = self.proj(x)
         x = self.gate(x)
         a, b = x.chunk(2, dim=1)
 
-        # Multiplication in FP32 to prevent overflow, then CLAMP to valid FP16 range
+        # We perform multiplication in FP32 to avoid overflow (common with gated units),
+        # then CLAMP to the valid FP16/Half range for hardware safety.
         x_f32 = a.float() * b.float()
         x = x_f32.clamp(-65504, 65504).to(a.dtype)
 
         x = self.out(x)
+        # LayerScale ensures very small updates early in training, improving stability.
         return self.scale(x) + res
 
 
@@ -395,14 +417,15 @@ class PhotoBlock(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         res = x
 
-        # Convolutional path
+        # Convolutional path: Local feature extraction and mixing.
         x = self.norm(x)
         x = self.conv1(x)
         x = F.gelu(self.dw(x))
         x = self.conv2(x)
         x = res + self.scale(x)
 
-        # Optional attention
+        # Optional attention: Incorporates long-range context and structural
+        # consistency, which is vital for high-quality photo reconstruction.
         if self.attention_mode is not None and not self.export_safe:
             # WindowAttention expects (B, H, W, C) for easier manipulation
             res_attn = x
@@ -560,7 +583,7 @@ class ProBlock(nn.Module):
         self.scale4 = LayerScale(dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # 1. Conv mixing
+        # 1. Conv mixing: Strong local feature base
         res = x
         x = self.norm1(x)
         x = self.conv1(x)
@@ -568,11 +591,11 @@ class ProBlock(nn.Module):
         x = self.conv2(x)
         x = res + self.scale1(x)
 
-        # 2. Channel Attention (SE)
+        # 2. Channel Attention (SE): Global channel-wise calibration
         res = x
         x = res + self.scale2(self.channel_attn(x))
 
-        # 3. Window Attention (if enabled)
+        # 3. Window Attention: Local structural consistency
         if self.attention_mode is not None and not self.export_safe:
             res = x
             x = self.norm3(x).permute(0, 2, 3, 1)  # (B, C, H, W) -> (B, H, W, C)
@@ -580,7 +603,7 @@ class ProBlock(nn.Module):
             x = x.permute(0, 3, 1, 2)  # (B, H, W, C) -> (B, C, H, W)
             x = res + self.scale3(x)
 
-        # 4. Token Dictionary CA
+        # 4. Token Dictionary CA: Global texture and pattern understanding
         res = x
         x = self.norm4(x)
         x = self.token_ca(x)
@@ -605,6 +628,8 @@ class ResidualGroup(nn.Module):
         self.checkpointing = checkpointing
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Gradient checkpointing reduces VRAM usage significantly during training
+        # by recomputing the forward pass of blocks during backpropagation.
         if self.checkpointing and x.requires_grad:
             for b in self.blocks:
                 x = checkpoint.checkpoint(b, x, use_reentrant=False)
@@ -1351,7 +1376,12 @@ class ParagonSR2(nn.Module):
 
 
 @ARCH_REGISTRY.register()
-def paragonsr2_realtime(scale=4, **kw):
+def paragonsr2_realtime(scale: int = 4, **kw) -> ParagonSR2:
+    """
+    Realtime Tier: Optimized for maximum throughput and low latency.
+    Ideal for mobile devices or high-framerate video upscaling.
+    Uses NanoBlocks (Depthwise-Conv sandwich).
+    """
     return ParagonSR2(
         scale=scale,
         num_feat=16,
@@ -1365,7 +1395,12 @@ def paragonsr2_realtime(scale=4, **kw):
 
 
 @ARCH_REGISTRY.register()
-def paragonsr2_stream(scale=4, **kw):
+def paragonsr2_stream(scale: int = 4, **kw) -> ParagonSR2:
+    """
+    Stream Tier: Balanced for video streaming and broad compatibility.
+    Provides better artifact suppression and consistency than Realtime.
+    Uses StreamBlocks (Multi-scale Gated Convs).
+    """
     return ParagonSR2(
         scale=scale,
         num_feat=32,
@@ -1379,7 +1414,12 @@ def paragonsr2_stream(scale=4, **kw):
 
 
 @ARCH_REGISTRY.register()
-def paragonsr2_photo(scale=4, **kw):
+def paragonsr2_photo(scale: int = 4, **kw) -> ParagonSR2:
+    """
+    Photo Tier: High-quality restoration for photography and paintings.
+    Features local window attention for structural consistency.
+    Uses PhotoBlocks (Conv mixing + Window Attention).
+    """
     return ParagonSR2(
         scale=scale,
         num_feat=64,
@@ -1396,23 +1436,18 @@ def paragonsr2_photo(scale=4, **kw):
 
 
 @ARCH_REGISTRY.register()
-def paragonsr2_pro(scale=4, **kw):
+def paragonsr2_pro(scale: int = 4, **kw) -> ParagonSR2:
     """
-    Pro variant: The most capable ParagonSR2 configuration.
-
-    Combines all proven quality mechanisms:
-    - Conv Mixing (local features)
-    - Channel Attention SE (learns which features matter)
-    - Window Attention (local structure)
-    - Token Dictionary CA (global textures)
-
-    Config: 6 groups x 6 blocks = 36 ProBlocks with 64 tokens.
+    Pro Tier: State-of-the-art quality for medical, scientific, or archival use.
+    The most capable variant in the Paragon lineup.
+    Combines all mechanisms (Conv, SE, Window, Token) into massive 36-block body.
+    Initial default: 6 groups x 6 blocks.
     """
     return ParagonSR2(
         scale=scale,
         num_feat=64,
-        num_groups=6,  # 6 groups for maximum capacity
-        num_blocks=6,  # 6 ProBlocks per group = 36 total
+        num_groups=6,
+        num_blocks=6,
         variant="pro",
         detail_gain=kw.pop("detail_gain", 0.1),
         upsampler_alpha=kw.pop("upsampler_alpha", 0.4),

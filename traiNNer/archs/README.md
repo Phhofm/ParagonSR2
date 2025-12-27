@@ -70,13 +70,27 @@ The architecture is designed to scale from mobile devices to workstations.
 -   **Tech**: Uses `StreamBlock` (Multi-rate Depthwise Context).
 -   **Why**: Gating mechanisms combined with multi-stage context gathering work exceptionally well for removing compression artifacts (de-blocking) without the computational cost of Attention.
 
-### Photo (Base)
--   **Goal**: Best possible single-image restoration.
--   **Tech**: Uses `PhotoBlock` with **Simplified Window Attention**.
--   **Why**: Strong convolutional mixing followed by selective attention for long-range structural consistency.
--   **Attention Options**: Supports standard SDPA for broad compatibility and FlexAttention for specialized PyTorch-only acceleration.
+### Pro (Enthusiast)
+-   **Goal**: Absolute state-of-the-art restoration for archival, medical, or scientific use.
+-   **Tech**: Uses `ProBlock` with **Token Dictionary Cross-Attention** and **Channel Attention**.
+-   **Why**: Combines all proven mechanisms (Conv, SE, Window, Token) into a high-depth (36 blocks) body. 
+-   **Optimization**: Features `RMSNorm` stability fixes and `LayerScale` for safe deep training.
 
 ---
+
+## 4. Technical Innovations in Version 11
+
+### ProBlock: The Universal Engine
+The `ProBlock` is designed to leave no quality on the table. It processes information through four specialized stages:
+1.  **Convolutional Base**: Extracts local features and textures.
+2.  **SE Channel Attention**: Dynamically weights channel importance based on global image context.
+3.  **Window Attention**: Ensures structural consistency and captures medium-range dependencies.
+4.  **Token Dictionary CA**: Attends to a learned global dictionary of "visual concepts," enabling the reconstruction of complex, repeating textures (e.g., skin pores, fabric weaves).
+
+### Stability at Scale
+Training deep networks (36+ blocks) is notoriously unstable. ParagonSR2 version 11 introduces:
+-   **RMSNorm in FP32**: We compute the norm variance in FP32 to prevent numerical overflow/underflow, which is common in deep SR networks trained with AMP (Automated Mixed Precision).
+-   **LayerScale**: Every advanced block includes a learnable per-channel scaling factor (`LayerScale`). This forces the network to start with identity-like transforms and gradually learn larger updates, drastically improving convergence stability.
 
 ## 4. Integration with traiNNer-redux
 
@@ -102,7 +116,7 @@ network_g:
 
 ---
 
-## 5. Versions 8 & 9: The Streamlined Release
+## 6. History: Versions 8 to 11
 
 The final iterations focused on "Product-First" stability and performance, stripping away auxiliary complexity in favor of raw throughput and deployment reliability.
 
@@ -118,3 +132,5 @@ The final iterations focused on "Product-First" stability and performance, strip
 ### Universal Compatibility
 -   **PixelShuffle**: Replaced progressive upsampling stages with a single, highly-optimized PixelShuffle head for 2x/3x/4x/8x. This ensures 100% uniformity in output artifacts and simplifies TensorRT engine creation.
 -   **Legacy Mapping**: The release architecture includes a mapping layer to ensure compatibility with models trained on older versions (v7/v8), ensuring your progress isn't lost.
+### Version 11: The Quality Update
+The latest evolution introduces the **Pro tier**, specifically designed for users who want the absolute maximum PSNR/SSIM. By unifying local and global attention mechanisms with a deep, stabilized body, version 11 sets a new benchmark for ParagonSR2's restorative capabilities.
