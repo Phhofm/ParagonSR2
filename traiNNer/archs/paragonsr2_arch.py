@@ -190,7 +190,7 @@ class WindowAttention(nn.Module):
         self,
         dim: int,
         num_heads: int,
-        window_size: int = 8,
+        window_size: int = 16,
         shift_size: int = 0,
         attention_mode: str = "sdpa",
     ) -> None:
@@ -1453,6 +1453,6 @@ def paragonsr2_pro(scale: int = 4, **kw) -> ParagonSR2:
         upsampler_alpha=kw.pop("upsampler_alpha", 0.4),
         attention_mode=kw.pop("attention_mode", "sdpa"),
         export_safe=kw.pop("export_safe", False),
-        window_size=kw.pop("window_size", 8),
+        window_size=kw.pop("window_size", 16),
         **kw,
     )

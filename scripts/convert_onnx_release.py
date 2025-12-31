@@ -312,18 +312,32 @@ class ParagonConverter:
         print(f"\n[ONNX] Exporting to {output_path}...")
         output_names = ["output"]
 
-        # Prepare export args
-        export_args = (dummy_input,)
+        # Prepare export args and model wrapper
         if self.args.video:
-            output_names.append("feature_map")
-            # Create dummy prev_feat matching conv_in output shape (B, 64, H, W)
-            # Assuming conv_in preserves H,W (padding=1)
-            dummy_prev = torch.zeros(1, 64, 64, 64, device=self.device)
-            # Args: (x, feature_tap=True, prev_feat=dummy_prev, alpha=0.2)
-            export_args = (dummy_input, True, dummy_prev, 0.2)
+            # We use a wrapper to bake in the bool/float flags.
+            # Passing them as inputs to torch.onnx.export causes crashes in PyTorch 2.5+ (TorchDynamo/treespect issues)
+            class VideoExportWrapper(torch.nn.Module):
+                def __init__(self, model) -> None:
+                    super().__init__()
+                    self.model = model
 
-            # We need to add 'prev_feat' to input_names for ONNX
+                def forward(self, x, prev_feat):
+                    return self.model(
+                        x, feature_tap=True, prev_feat=prev_feat, alpha=0.2
+                    )
+
+            model = VideoExportWrapper(model)
+            # Dynamically get feature channels from the model
+            if hasattr(model.model, "conv_in"):
+                feat_ch = model.model.conv_in.out_channels
+            else:
+                feat_ch = 64  # Fallback
+
+            dummy_prev = torch.zeros(1, feat_ch, 64, 64, device=self.device)
+            export_args = (dummy_input, dummy_prev)
+
             input_names = ["input", "prev_feat"]
+            output_names = ["output", "feature_map"]
             dynamic_axes = {
                 "input": {0: "batch_size", 2: "height", 3: "width"},
                 "prev_feat": {0: "batch_size", 2: "height", 3: "width"},
@@ -331,7 +345,9 @@ class ParagonConverter:
                 "feature_map": {0: "batch_size", 2: "height", 3: "width"},
             }
         else:
+            export_args = (dummy_input,)
             input_names = ["input"]
+            output_names = ["output"]
             dynamic_axes = {
                 "input": {0: "batch_size", 2: "height", 3: "width"},
                 "output": {0: "batch_size", 2: "height", 3: "width"},
@@ -340,7 +356,7 @@ class ParagonConverter:
         with torch.no_grad():
             torch.onnx.export(
                 model,
-                export_args,  # Use tuple of args
+                export_args,
                 output_path,
                 export_params=True,
                 opset_version=self.args.opset,

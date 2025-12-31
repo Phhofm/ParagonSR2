@@ -42,6 +42,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 try:
     from tqdm import tqdm
@@ -250,8 +251,6 @@ class PyTorchRunner:
 class TRTRunner:
     """
     TensorRT engine runner for benchmarking.
-
-    Supports dynamic shapes and optional feature_map output for video mode.
     """
 
     def __init__(self, engine_path: str, is_video: bool = False) -> None:
@@ -266,42 +265,83 @@ class TRTRunner:
             self.engine = self.runtime.deserialize_cuda_engine(f.read())
         self.context = self.engine.create_execution_context()
 
+        # Build name-to-index mapping for compatibility with TRT 10+
+        self.name_to_idx = {}
+        for i in range(self.engine.num_io_tensors):
+            name = self.engine.get_tensor_name(i)
+            self.name_to_idx[name] = i
+
     def run(
-        self, input_tensor: torch.Tensor
+        self, input_tensor: torch.Tensor, prev_feat: torch.Tensor | None = None
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Run TensorRT inference."""
-        input_ptr = input_tensor.data_ptr()
-
-        # Set input shape for dynamic engines
+        # Ensure contiguity to prevent PC freezes
+        input_tensor = input_tensor.contiguous()
         self.context.set_input_shape("input", input_tensor.shape)
 
-        # Get output shape and dtype
-        out_shape = self.context.get_tensor_shape("output")
+        # Handle temporal input if provided
+        if prev_feat is not None:
+            prev_feat = prev_feat.contiguous()
+            self.context.set_input_shape("prev_feat", prev_feat.shape)
+
+        # Get output shape
+        out_shape = tuple(self.context.get_tensor_shape("output"))
+        if any(d < 0 for d in out_shape):
+            # Fallback for dynamic shapes if not auto-inferred
+            b, _c, h, w = input_tensor.shape
+            scale_h = 2  # Default fallback
+            scale_w = 2
+            out_shape = (b, 3, h * scale_h, w * scale_w)
+
         out_dtype = (
             torch.float16
             if self.engine.get_tensor_dtype("output") == trt.float16
             else torch.float32
         )
         output_tensor = torch.empty(
-            tuple(out_shape), dtype=out_dtype, device=input_tensor.device
+            out_shape, dtype=out_dtype, device=input_tensor.device
         )
 
-        bindings = [input_ptr, output_tensor.data_ptr()]
-
         feat_tensor = None
-        if self.is_video and self.engine.num_io_tensors > 2:
-            feat_shape = self.context.get_tensor_shape("feature_map")
-            feat_dtype = (
-                torch.float16
-                if self.engine.get_tensor_dtype("feature_map") == trt.float16
-                else torch.float32
+        if self.is_video:
+            # Detect feature map output name - usually "feature_map" or "output.1"
+            feat_name = (
+                "feature_map" if "feature_map" in self.name_to_idx else "output.1"
             )
-            feat_tensor = torch.empty(
-                tuple(feat_shape), dtype=feat_dtype, device=input_tensor.device
-            )
-            bindings.append(feat_tensor.data_ptr())
+            if feat_name in self.name_to_idx:
+                feat_shape = tuple(self.context.get_tensor_shape(feat_name))
+                feat_dtype = (
+                    torch.float16
+                    if self.engine.get_tensor_dtype(feat_name) == trt.float16
+                    else torch.float32
+                )
+                feat_tensor = torch.empty(
+                    feat_shape, dtype=feat_dtype, device=input_tensor.device
+                )
 
-        self.context.execute_v2(bindings)
+        # Build address list (bindings)
+        bindings = [0] * self.engine.num_io_tensors
+        bindings[self.name_to_idx["input"]] = input_tensor.data_ptr()
+        bindings[self.name_to_idx["output"]] = output_tensor.data_ptr()
+
+        if prev_feat is not None and "prev_feat" in self.name_to_idx:
+            bindings[self.name_to_idx["prev_feat"]] = prev_feat.data_ptr()
+
+        if feat_tensor is not None:
+            feat_name = (
+                "feature_map" if "feature_map" in self.name_to_idx else "output.1"
+            )
+            bindings[self.name_to_idx[feat_name]] = feat_tensor.data_ptr()
+
+        # Prefer execute_v3 if available, otherwise fallback to v2
+        if hasattr(self.context, "execute_v3"):
+            for name, idx in self.name_to_idx.items():
+                ptr = bindings[idx]
+                if ptr != 0:
+                    self.context.set_tensor_address(name, ptr)
+            self.context.execute_v3(0)
+        else:
+            self.context.execute_v2(bindings)
 
         if self.is_video:
             return output_tensor, feat_tensor
@@ -364,6 +404,24 @@ def benchmark_pytorch(
                 _ = runner.infer(img_t, use_amp=use_amp)
         else:
             img_t = img_t.to(memory_format=torch.channels_last)
+
+        # Window padding (Photo=16, Pro=16)
+        window_size = 1
+        name_lower = runner.model.__class__.__name__.lower()
+        variant_attr = getattr(runner.model, "variant", "")
+        if (
+            "photo" in name_lower
+            or variant_attr == "photo"
+            or "pro" in name_lower
+            or variant_attr == "pro"
+        ):
+            window_size = 16
+
+        h_orig, w_orig = img_t.shape[2], img_t.shape[3]
+        pad_h = (window_size - h_orig % window_size) % window_size
+        pad_w = (window_size - w_orig % window_size) % window_size
+        if pad_h > 0 or pad_w > 0:
+            img_t = F.pad(img_t, (0, pad_w, 0, pad_h), mode="reflect")
 
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
@@ -432,11 +490,34 @@ def benchmark_tensorrt(
         img_t = torch.from_numpy(img).to(device).float().permute(2, 0, 1).unsqueeze(0)
         img_t = img_t.div_(255.0)
 
+        # Window padding (Photo=16, Pro=16)
+        window_size = 1
+        if "photo" in mode.lower() or "pro" in mode.lower():
+            window_size = 16
+
+        h_orig, w_orig = img_t.shape[2], img_t.shape[3]
+        pad_h = (window_size - h_orig % window_size) % window_size
+        pad_w = (window_size - w_orig % window_size) % window_size
+        if pad_h > 0 or pad_w > 0:
+            img_t = F.pad(img_t, (0, pad_w, 0, pad_h), mode="reflect")
+
+        # Feature tap handling if video
+        p_feat = None
+        if is_video:
+            c_feat = 64
+            if "realtime" in mode.lower():
+                c_feat = 16
+            elif "stream" in mode.lower():
+                c_feat = 32
+            p_feat = torch.zeros(
+                (1, c_feat, img_t.shape[2], img_t.shape[3]), device=device
+            )
+
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
 
         start_event.record()
-        _ = runner.run(img_t)
+        _ = runner.run(img_t, prev_feat=p_feat)
         end_event.record()
         torch.cuda.synchronize()
 
