@@ -76,19 +76,32 @@ The road to the final **ParagonSR2** was paved with many experiments. This docum
 *   **Goal**: Prepare the codebase for final release by ensuring all variants share high-level logic while maintaining specialized low-level kernels.
 *   **Result**: A very stable but slightly heavy architecture file.
 
-### 11. `paragonsr2_arch_version9.py` (The Professional Polish - RELEASE)
+### 11. `paragonsr2_arch_version10.py` (The Professional Polish - RELEASE)
 *   **Focus**: Extreme simplification and "Product-First" design.
 *   **Major Change**: Stripped away modules that didn't provide a massive quality-to-latency gain (Removed MSCF, RAttention Proxy, and Content-Aware Gating from the main path).
 *   **Tech**:
-    -   Refined **WindowAttention** for perfect ONNX export behavior.
-    -   Introduced **NanoBlock**, **StreamBlock**, and **PhotoBlock** as distinct, optimized engines.
-    -   Simplified **PixelShuffle** head for universal compatibility across all scales.
-*   **Outcome**: This is the version officially released in the main [traiNNer/archs/](traiNNer/archs/) folder. It represents the best balance of speed, quality, and deployment ease.
-### 12. `paragonsr2_arch_version11.py` (The Universal Quality & Stability Update)
+    - Refined **WindowAttention** for perfect ONNX export behavior.
+    - Introduced **NanoBlock**, **StreamBlock**, and **PhotoBlock** as distinct, optimized engines.
+    - Simplified **PixelShuffle** head for universal compatibility across all scales.
+*   **Outcome**: This version represents the best balance of speed, quality, and deployment ease.
+
+### 12. `paragonsr2_arch_version11.py` (The Universal Quality & Stability Update) 🚀
 *   **Focus**: State-of-the-Art PSNR/SSIM across ALL image types and extreme training stability.
 *   **Major Change**: Introduced the **Pro Tier** and high-depth configurations (up to 36 blocks).
 *   **Innovations**:
-    -   **ProBlock**: A "universal engine" combining Conv, SE Channel Attention, Window Attention (local structure), and Token Dictionary CA (global textures).
-    -   **Numerical Stability**: Switched to `RMSNorm` with FP32 variance calculation and added `LayerScale` to every block to enable stable training of very deep networks.
-    -   **TokenDictionaryCA**: A simplified cross-attention module that attends to a learned global dictionary of "visual concepts," helping the network reconstruct complex repeating patterns.
-*   **Outcome**: This is the current state-of-the-art branch. It provides a significant quality jump over version 9/10, especially for challenging archival or scientific content, while remaining highly stable during training.
+    - **ProBlock**: A "universal engine" combining Conv, SE Channel Attention, Window Attention (local structure), and **Token Dictionary CA** (global textures).
+    - **Numerical Stability**: Switched to `RMSNorm` with FP32 variance calculation and added `LayerScale` to every block to enable stable training of very deep networks.
+    - **TokenDictionaryCA**: A cross-attention module that attends to a learned global dictionary of "visual concepts," helping the network reconstruct complex repeating patterns.
+    - **Pro Window Size**: Optimized window sizes for the Pro variant to maximize receptive field without sacrificing throughput.
+*   **Outcome**: The current flagship branch. It provides a significant quality jump over previous versions, especially for challenging archival or scientific content, while remaining rock-solid during deep training.
+
+---
+
+## Technical Summary of Current Lineup
+
+| Variant | Logic | Primary Use | Deployment |
+| :--- | :--- | :--- | :--- |
+| **Realtime** | NanoBlock (MBConv) | 60FPS+ Video | Mobile / Edge |
+| **Stream** | StreamBlock (Gated Conv) | Quality Streaming | Desktop Playback |
+| **Photo** | PhotoBlock (Attn + Conv) | General Photography | Pro Photo Editing |
+| **Pro** | ProBlock (Global + Local) | Scientific / Archival | Cloud / HPC |

@@ -88,7 +88,16 @@ class TRTRunner:
     def run(
         self, input_tensor: torch.Tensor, prev_feat: torch.Tensor | None = None
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor | None]:
-        """Run TensorRT inference."""
+        """
+        Run TensorRT inference.
+
+        Args:
+            input_tensor: Input image/video frame (B, 3, H, W).
+            prev_feat: Previous frame features for video mode (B, C, H, W).
+
+        Returns:
+            SR output, or (SR output, features) if is_video=True.
+        """
         # 1. Set Input Shapes
         self.context.set_input_shape("input", input_tensor.shape)
 
@@ -289,7 +298,19 @@ class PyTorchRunner:
         prev_feat: torch.Tensor | None = None,
         force_fp32: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        """Run PyTorch inference with optional feature tap."""
+        """
+        Run PyTorch inference with optional feature tap and FP32 fallback.
+
+        Args:
+            input_tensor: Input image/video frame (B, 3, H, W).
+            feature_tap: If True, also return intermediate features.
+            prev_feat: Previous frame features for temporal blending.
+            force_fp32: If True, executes in FP32 regardless of model precision.
+                        Used as a slow-but-stable fallback for NaN/Inf values.
+
+        Returns:
+            SR output, or (SR output, features) if feature_tap=True.
+        """
         if self.compiled and not force_fp32:
             input_tensor = input_tensor.contiguous()
             if prev_feat is not None:
@@ -445,7 +466,16 @@ class InferenceOrchestrator:
         raise RuntimeError("No suitable backend could be initialized.")
 
     def process_image(self, img: np.ndarray) -> np.ndarray:
-        """Process a single image (stateless)."""
+        """
+        Process a single image (stateless).
+        Standard high-quality upscaling without temporal feedback.
+
+        Args:
+            img: Input image as HWC BGR numpy array.
+
+        Returns:
+            Upscaled image as HWC BGR numpy array.
+        """
         img_t = (
             torch.from_numpy(img).to(self.device).float().permute(2, 0, 1).unsqueeze(0)
             / 255.0
@@ -516,8 +546,12 @@ class InferenceOrchestrator:
         """
         Process video with Temporal Feature-Tap stabilization.
 
-        Uses prev_feat injection to blend features across frames for smoother output.
-        Scene change detection resets the temporal state to prevent ghosting.
+        This function implements the core video logic of ParagonSR2:
+        1.  **Iterative State**: Transfers `prev_feat` between frames for smooth blending.
+        2.  **Scene Detection**: Computes luma difference. If a scene change is detected,
+            the temporal state is cleared (`prev_feat = None`) to prevent ghosting.
+        3.  **NaN Guard**: If the backend produces invalid values (NaN/Inf), the script
+            automatically retries that specific frame in forced FP32 mode.
         """
         print(f"  [Video] Processing: {input_path.name}")
 

@@ -95,8 +95,14 @@ class TensorRTGlobalAvgPool(nn.Module):
         return x.mean(dim=[-1, -2], keepdim=True)
 
 
-def patch_model_for_tensorrt(model: nn.Module):
-    """Recursively replace AdaptiveAvgPool2d(1) with TensorRTGlobalAvgPool."""
+def patch_model_for_tensorrt(model: nn.Module) -> nn.Module:
+    """
+    Recursively replace AdaptiveAvgPool2d(1) with TensorRTGlobalAvgPool.
+
+    TensorRT has better optimization for standard `mean` or `GlobalAveragePool`
+    than for `AdaptiveAvgPool` with dynamic input shapes. This patch ensures
+    the exported ONNX graph is clean and maximizes inference speed.
+    """
     print("      Patching model for TensorRT compatibility...")
     replaced_count = 0
     for name, module in model.named_modules():
@@ -155,6 +161,16 @@ def postprocess_output(output: np.ndarray) -> np.ndarray:
 
 
 class ParagonConverter:
+    """
+    Orchestrates the conversion of ParagonSR2 checkpoints to optimized ONNX.
+
+    Handles:
+    - Weight loading and legacy key mapping.
+    - Model patching for TensorRT.
+    - Dynamic axis configuration for flexible inference resolutions.
+    - Accuracy validation against the original PyTorch model.
+    """
+
     def __init__(self, args) -> None:
         self.args = args
         self.device = torch.device(
@@ -317,6 +333,15 @@ class ParagonConverter:
             # We use a wrapper to bake in the bool/float flags.
             # Passing them as inputs to torch.onnx.export causes crashes in PyTorch 2.5+ (TorchDynamo/treespect issues)
             class VideoExportWrapper(torch.nn.Module):
+                """
+                Wraps ParagonSR2 for Video-Ready ONNX export.
+
+                In Video Mode, the model requires `feature_tap=True` and a `prev_feat` input.
+                To avoid issues with bool/float arguments during ONNX export in modern PyTorch
+                (which can trigger TorchDynamo errors), this wrapper hard-codes the
+                stabilization flags, exposing only the input tensors to ONNX.
+                """
+
                 def __init__(self, model) -> None:
                     super().__init__()
                     self.model = model

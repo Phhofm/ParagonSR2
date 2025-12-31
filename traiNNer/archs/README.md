@@ -67,7 +67,7 @@ The architecture is designed to scale from modern mobile devices to archival-gra
 | Pro | 36 | 2,436,556 | Pro |
 
 ### Realtime (Nano)
--   **Goal**: 60fps+ on mid-range GPUs.
+-   **Goal**: High-speed inference on mobile/mid-range GPUs.
 -   **Tech**: Uses `NanoBlock` (Simple MBConv).
 -   **Why**: Depthwise Separable Convolutions are extremely fast and memory efficient.
 -   **Optimization**: Minimal overhead, no gating or attention.
@@ -85,7 +85,23 @@ The architecture is designed to scale from modern mobile devices to archival-gra
 
 ---
 
-## 4. Technical Innovations in Version 11
+## 4. Video Mode: Temporal Feature-Tap Smoothing
+
+Video upscaling with GAN-based models often suffers from "pixel swimming" or flickering because the network processes each frame in isolation. ParagonSR2 solves this via a **Temporal Feature-Tap**.
+
+### How it Works
+1.  **Feature Extraction**: During the forward pass of frame $t$, the network extracts an intermediate feature map immediately after the first convolution layer.
+2.  **State Injection**: This feature map is cached and injected into the forward pass of frame $t+1$.
+3.  **Blending**: The injected "history" features are blended with the current frame's initial features using a learnable or fixed $\alpha$ (usually 0.2).
+    $$X_{blended} = (1 - \alpha) X_{curr} + \alpha X_{prev}$$
+4.  **Consistency**: This forces the deep layers of the network to be aware of what was "imagined" in the previous frame, leading to rock-solid temporal stability without the multi-GB memory overhead of 3D convolutions.
+
+### Scene Change Detection
+To prevent "ghosting" artifacts during scene cuts, the inference script monitors the mean luma shift between frames. If a sudden jump (scene change) is detected, the temporal state is cleared, ensuring the next scene starts with a fresh, crisp frame.
+
+---
+
+## 5. Technical Innovations in Version 11
 
 ### ProBlock: The Universal Engine
 The `ProBlock` is designed to leave no quality on the table. It processes information through four specialized stages:
@@ -96,10 +112,12 @@ The `ProBlock` is designed to leave no quality on the table. It processes inform
 
 ### Stability at Scale
 Training deep networks (36+ blocks) is notoriously unstable. ParagonSR2 version 11 introduces:
--   **RMSNorm in FP32**: We compute the norm variance in FP32 to prevent numerical overflow/underflow, which is common in deep SR networks trained with AMP (Automated Mixed Precision).
+-   **RMSNorm in FP32**: We compute the norm variance in FP32 to prevent numerical overflow/underflow, which is common in deep SR networks trained with AMP (Mixed Precision).
 -   **LayerScale**: Every advanced block includes a learnable per-channel scaling factor (`LayerScale`). This forces the network to start with identity-like transforms and gradually learn larger updates, drastically improving convergence stability.
 
-## 4. Integration with traiNNer-redux
+---
+
+## 6. Integration with traiNNer-redux
 
 This architecture file is a "drop-in" replacement for standard archs.
 
@@ -123,21 +141,16 @@ network_g:
 
 ---
 
-## 6. History: Versions 8 to 11
+## 7. History: Versions 8 to 11
 
 The final iterations focused on "Product-First" stability and performance, stripping away auxiliary complexity in favor of raw throughput and deployment reliability.
 
 ### Deployment-First Window Attention
 -   **Simplified**: Window partitioning was refactored for maximum stability during ONNX export.
--   **Flexible**: Added `attention_mode` flag. Defaults to `sdpa` (standard) but can be set to `flex` for PyTorch-native speedups.
--   **Export Safe**: The `export_safe` flag disables attention entirely, allowing the Photo variant to be deployed on hardware that doesn't support modern attention ops.
-
-### Context over Complexity
--   **Removed MSCF/RAttention Proxy**: While innovative, these modules added significant parameter count and latency. They were replaced by robust convolutional paths in `StreamBlock` and `PhotoBlock` that achieve similar quality with higher FPS.
--   **Refined Gating**: Stream variant gating was simplified to a standard multiplication gate, reducing logic branches and aiding TorchScript/Inductor compilation.
+-   **Flexible**: Added `attention_mode` flag (`sdpa` or `flex`).
+-   **Export Safe**: The `export_safe` flag disables attention specifically for restricted hardware.
 
 ### Universal Compatibility
--   **PixelShuffle**: Replaced progressive upsampling stages with a single, highly-optimized PixelShuffle head for 2x/3x/4x/8x. This ensures 100% uniformity in output artifacts and simplifies TensorRT engine creation.
--   **Legacy Mapping**: The release architecture includes a mapping layer to ensure compatibility with models trained on older versions (v7/v8), ensuring your progress isn't lost.
-### Version 11: The Quality Update
-The latest evolution introduces the **Pro tier**, specifically designed for users who want the absolute maximum PSNR/SSIM. By unifying local and global attention mechanisms with a deep, stabilized body, version 11 sets a new benchmark for ParagonSR2's restorative capabilities.
+-   **PixelShuffle**: Replaced progressive upsampling with a single, highly-optimized PixelShuffle head for all scales (2x, 3x, 4x, 8x).
+-   **Legacy Mapping**: Includes a mapping layer to ensure compatibility with models trained on older versions (v7/v8).
+-   **Version 11 Quality Update**: The flagship update introducing the **Pro tier** for absolute maximum PSNR/SSIM across diverse content types.

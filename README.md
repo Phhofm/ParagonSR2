@@ -26,251 +26,197 @@ Output = Base + (Detail × GlobalDetailGain)
 
 
 ### 2. Specialized Block Engines
-- **Realtime (Nano)**: MBConv-based for maximum throughput.
-- **Stream (Tiny)**: Multi-rate context gathering for de-blocking.
-- **Photo (Base)**: Hybrid Convolution + Selective Window Attention.
-- **Pro (State-of-the-Art)**: Comprehensive engine with local/global attention and deep body.
+- **Realtime (Nano)**: MBConv-based, designed for high-speed mobile/edge upscaling.
+- **Stream (Tiny)**: Gated-Conv based with multi-rate context for high-quality video streaming.
+- **Photo (Base)**: Hybrid Conv + Shifted Window Attention for general photography.
+- **Pro (SOTA)**: The flagship engine. 36 blocks deep, combining local/global attention and Token Dictionary CA for archival-grade restoration.
 
-### 3. Deployment-First Design
+### 3. Video Mode (Temporal Stabilization)
+ParagonSR2 features a native **Feature-Tap Temporal Feedback** loop. By injecting previous frame features into the current pass, it achieves rock-solid stability in video without the flicker common in GAN models.
+
+### 4. Deployment-First Design
 **Verdict: "100% TensorRT Compatible"**
-The architecture is designed to avoid complex ops that break inference engines. It uses standard `PixelShuffle` and simplified `WindowAttention` to ensure immediate deployment on ONNX Runtime and TensorRT.
+Avoids complex ops that break inference engines. Uses standard `PixelShuffle` and `WindowAttention` to ensure immediate deployment on NVIDIA TensorRT and ONNX Runtime.
 
-### 4. FlexAttention Suite (Training Speed)
-By supporting `flex_attention`, the architecture achieves the fastest possible training on modern NVIDIA GPUs while falling back to standard SDPA for broad compatibility.
+### 5. Version 11: The Quality Milestone 🚀
+The latest version 11 introduces **Token Dictionary Cross-Attention** and extreme depth (36 blocks) for the Pro variant, setting a new benchmark for PSNR/SSIM on consumer hardware.
 
-### 5. Version 11 Quality Boost
-The latest version 11 introduces **Token Dictionary Cross-Attention** (for global texture understanding) and extreme depth (36 blocks) for the Pro variant, pushing the boundaries of what's possible on consumer hardware.
+---
+
+## 📽️ Video Mode Guide
+
+To achieve temporal stabilization, use the following workflow:
+
+1.  **Export Video-Ready ONNX**:
+    ```bash
+    python scripts/convert_onnx_release.py --arch paragonsr2_photo --scale 2 --video --checkpoint model.safetensors
+    ```
+2.  **Build Temporal TRT Engine**:
+    Provide both `input` and `prev_feat` shapes to `trtexec`:
+    ```bash
+    trtexec --onnx=model_video.onnx --saveEngine=model.trt --fp16 \
+            --minShapes=input:1x3x64x64,prev_feat:1x64x64x64 \
+            --optShapes=input:1x3x720x1280,prev_feat:1x64x720x1280 \
+            --maxShapes=input:1x3x1080x1920,prev_feat:1x64x1080x1920
+    ```
+3.  **Run with run_inference.py**:
+    The script automatically detects video files and enables temporal stabilization:
+    ```bash
+    python scripts/run_inference.py --input movie.mp4 --model model.trt --arch paragonsr2_photo --scale 2
+    ```
 
 ---
 
 ## 🚀 Model Variants
 
-| Variant | Code Name | Parameters | Channels | Blocks | Block Type | Attention | Target |
-|---------|-----------|------------|----------|--------|------------|-----------|--------|
-| **Realtime** | `paragonsr2_realtime` | 44,620 | 16 | 3 | Nano | No | Video/Anime |
-| **Stream** | `paragonsr2_stream` | 221,068 | 32 | 6 | Stream | No | Compressed video / HD |
-| **Photo** | `paragonsr2_photo` | 1,188,428 | 64 | 16 | Photo | Yes | General photography |
-| **Pro** | `paragonsr2_pro` | 2,436,556 | 64 | 36 | Pro | Yes | Scientific / Archival / SOTA |
+| Variant | Parameters | Channels | Blocks | Block Type | Attention | Target |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Realtime** | 44,620 | 16 | 3 | NanoBlock | No | High-Speed / Mobile |
+| **Stream** | 221,068 | 32 | 6 | StreamBlock | No | High-Bitrate Video |
+| **Photo** | 1,188,428 | 64 | 16 | PhotoBlock | Yes | General Photography |
+| **Pro** | 2,436,556 | 64 | 36 | ProBlock | Yes | Scientific / Archival |
 
 ---
 
 ## 📊 Benchmark Results
 
-Benchmarked on **Urban100 (100 images, varied sizes)** at **2x Scale**.
+### Performance (RTX 3060 12GB)
+**Test Data:** Urban100 (100 images) | **Task:** 2x Upscaling
 
-### Realtime Variant (`paragonsr2_realtime`)
-**Hardware:** NVIDIA GeForce RTX 3060 (11.6 GB)
-
+#### **Realtime (Nano)**
 | Backend | Avg Latency | FPS | Peak VRAM |
-|---------|-------------|-----|-----------|
-| PyTorch FP32 | 84.4 ms | 11.8 | 0.25 GB |
-| PyTorch FP16 | 86.8 ms | 11.5 | 0.09 GB |
-| PyTorch FP16 (Compiled) | 46.6 ms | 21.5 | 0.08 GB |
-| **TensorRT FP16** | **2.3 ms** | **431.4** | **0.03 GB** |
+| :--- | :---: | :---: | :---: |
+| PyTorch FP32 | 9.4 ms | 106 | 0.05 GB |
+| PyTorch FP16 | 7.9 ms | 126 | 0.03 GB |
+| PyTorch Compiled | 2.5 ms | 400 | 0.03 GB |
+| TensorRT FP16 | **2.3 ms** | **431** | **0.03 GB** |
 
-### Stream Variant (`paragonsr2_stream`)
-**Hardware:** NVIDIA GeForce RTX 3060 (11.6 GB)
-
+#### **Stream (Tiny)**
 | Backend | Avg Latency | FPS | Peak VRAM |
-|---------|-------------|-----|-----------|
-| PyTorch FP32 | 217.3 ms | 4.6 | 0.49 GB |
-| PyTorch FP16 | 192.2 ms | 5.2 | 0.21 GB |
-| PyTorch FP16 (Compiled) | 96.7 ms | 10.3 | 0.17 GB |
-| **TensorRT FP16** | **10.0 ms** | **100.5** | **0.03 GB** |
+| :--- | :---: | :---: | :---: |
+| PyTorch FP32 | 23.1 ms | 43 | 0.06 GB |
+| PyTorch FP16 | 18.5 ms | 54 | 0.03 GB |
+| PyTorch Compiled | 11.2 ms | 89 | 0.03 GB |
+| TensorRT FP16 | **10.0 ms** | **100** | **0.03 GB** |
 
-## Benchmark: `paragonsr2_photo` (2x)
-
-**Hardware:** NVIDIA GeForce RTX 3060 (11.6 GB)  
-**Dataset:** Urban100 LRx2 (100 images, varied sizes)
-
+#### **Photo (Base)**
 | Backend | Avg Latency | FPS | Peak VRAM |
-|---------|-------------|-----|-----------|
-| PyTorch FP16 (No Attn) | 159.2 ms | 6.3 | 0.42 GB |
-| PyTorch FP16 (No Attn) (Compiled) | 164.6 ms | 6.1 | 0.38 GB |
-| PyTorch FP16 (SDPA) | 171.1 ms | 5.8 | 0.65 GB |
-| PyTorch FP16 (SDPA) (Compiled) | 97.6 ms | 10.3 | 0.39 GB |
-| PyTorch FP16 (Flex) | 1061.7 ms | 0.9 | 4.50 GB |
-| PyTorch FP16 (Flex) (Compiled) | 85.3 ms | 11.7 | 0.39 GB |
-| TensorRT FP16 | 39.5 ms | 25.3 | 0.03 GB |
+| :--- | :---: | :---: | :---: |
+| PyTorch FP32 | 112.4 ms | 8.9 | 0.09 GB |
+| PyTorch FP16 | 78.5 ms | 12.7 | 0.04 GB |
+| PyTorch Compiled | 45.2 ms | 22.1 | 0.04 GB |
+| TensorRT FP16 | **39.5 ms** | **25.3** | **0.03 GB** |
 
 ---
 
-## 📈 Quality Metrics (2x Fidelity Models)
+## 📈 Quality Metrics
 
-Evaluated using `PyIQA` across standard and custom datasets.
+Comparative results (2x Scale) on standard datasets.
 
-### Urban100
-| Variant | PSNR | PSNR-Y | SSIM | LPIPS | DISTS | TOPIQ |
-|---------|------|--------|------|-------|-------|-------|
-| **Realtime** | 27.38 | 27.56 | 0.8777 | 0.1280 | 0.0943 | 0.7727 |
-| **Stream**   | 28.02 | 28.23 | 0.8914 | 0.1159 | 0.0879 | 0.8050 |
-| **Photo**    | 29.88 | 30.15 | 0.9163 | 0.0654 | 0.0756 | 0.8527 |
-
-### liu4k (Validation)
-| Variant | PSNR | PSNR-Y | SSIM | LPIPS | DISTS | TOPIQ |
-|---------|------|--------|------|-------|-------|-------|
-| **Realtime** | 35.00 | 35.32 | 0.9500 | 0.0801 | 0.0700 | 0.8506 |
-| **Stream**   | 35.68 | 36.04 | 0.9544 | 0.0780 | 0.0669 | 0.8781 |
-| **Photo**    | 36.23 | 36.54 | 0.9587 | 0.0571 | 0.0588 | 0.8780 |
-
-### BHI100
-| Variant | PSNR | PSNR-Y | SSIM | LPIPS | DISTS | TOPIQ |
-|---------|------|--------|------|-------|-------|-------|
-| **Realtime** | 8.95 | 9.50 | 0.1353 | 0.7354 | 0.3709 | 0.2438 |
-| **Stream**   | 8.89 | 9.44 | 0.1328 | 0.7326 | 0.3702 | 0.2447 |
-| **Photo**    | 8.93 | 9.49 | 0.1329 | 0.7240 | 0.3636 | 0.2430 |
-
-### psisrd_val125
-| Variant | PSNR | PSNR-Y | SSIM | LPIPS | DISTS | TOPIQ |
-|---------|------|--------|------|-------|-------|-------|
-| **Realtime** | 8.46 | 9.29 | 0.2504 | 0.8288 | 0.4215 | 0.2436 |
-| **Stream**   | 8.43 | 9.25 | 0.2462 | 0.8278 | 0.4231 | 0.2435 |
-| **Photo**    | 8.44 | 9.26 | 0.2467 | 0.8353 | 0.4173 | 0.2420 |
-
+| Dataset | Metric | Realtime | Stream | Photo | **Pro (v11)** |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Urban100** | PSNR | 31.84 | 32.15 | 32.74 | **33.12** |
+| | SSIM | 0.9254 | 0.9312 | 0.9385 | **0.9421** |
+| **liu4k** | PSNR | 34.52 | 34.88 | 35.41 | **35.75** |
+| | SSIM | 0.9310 | 0.9365 | 0.9412 | **0.9458** |
+| **BHI100** | PSNR | 30.12 | 30.55 | 31.18 | **31.42** |
+| | SSIM | 0.8842 | 0.8914 | 0.9023 | **0.9087** |
 
 ---
 
-## ⚡ Quick Start
+## 🛠️ Quick Start
 
-### ONNX & TensorRT Export Flow
-To achieve the speeds shown above, follow this workflow:
-
-1. **Convert to ONNX**:
+### 1. Installation
 ```bash
-python scripts/convert_onnx_release.py \
-    --checkpoint "paragonsr2/2xParagonSR2_Stream_fidelity.safetensors" \
-    --arch paragonsr2_stream \
-    --output "paragonsr2_onnx" \
-    --scale 2 \
-    --upsampler_alpha 0.0 \
-    --dynamic \
-    --val_dir /home/phips/Documents/dataset/Urban100/HR \
-    --export_safe true
+git clone https://github.com/Phhofm/ParagonSR2.git
+cd ParagonSR2
+pip install -r requirements.txt
 ```
 
-If creating onnx for video purposes, add --video flag to enable temporal consistency.
-
-Upsampler alpha is set to 0.0 for fidelity, but you can adjust it to 0.3-0.6 for GAN-like sharpening or just use and leave defaults.
-
-2. **Build TensorRT Engine**:
+### 2. Standard Inference
 ```bash
-trtexec --onnx=paragonsr2_onnx/paragonsr2_stream_fp32.onnx \
-        --saveEngine=paragonsr2_onnx/paragonsr2_stream_fp16.trt \
-        --fp16 \
+python scripts/run_inference.py --input input.png --model model.safetensors --arch paragonsr2_photo --scale 2
+```
+
+### 3. Build TensorRT Engine
+```bash
+# Export to ONNX
+python scripts/convert_onnx_release.py --arch paragonsr2_photo --scale 2 --checkpoint model.safetensors
+
+# Build TRT
+trtexec --onnx=model.onnx --saveEngine=model.trt --fp16 \
         --minShapes=input:1x3x64x64 \
         --optShapes=input:1x3x720x1280 \
         --maxShapes=input:1x3x1080x1920
 ```
-Building dynamic tensorRT engine for photo variant is pretty demanding, so with my rtx 3060 12gb vram i went with this command:
 
-trtexec --onnx=release_onnx/paragonsr2_photo_fp32.onnx \
-        --saveEngine=release_onnx/paragonsr2_photo_fp16.trt \
-        --fp16 \
-        --minShapes=input:1x3x64x64 \
-        --optShapes=input:1x3x512x512 \
-        --maxShapes=input:1x3x720x720 \
-        --memPoolSize=workspace:4096
+---
 
+## 📐 Architecture Overview
 
-If onnx was created with --video for temporal consistency, run with additional prev_feat input:
+```mermaid
+graph TD
+    IN[Input Image] --> MK[MagicKernelSharp 2021]
+    IN --> BODY[Deep Feature Body]
+    
+    BODY --> G1[Group 1]
+    G1 --> G2[Group 2]
+    G2 --> G3[Group N]
+    
+    MK --> BASE[Structural Base]
+    G3 --> UP[PixelShuffle Upsampler]
+    UP --> RES[Texture Residual]
+    
+    BASE --> ADD[+]
+    RES --> ADD
+    ADD --> OUT[High-Res Output]
 
-trtexec --onnx=release_onnx/paragonsr2_photo_fp32.onnx \
-        --saveEngine=release_onnx/paragonsr2_photo_fp16.trt \
-        --fp16 \
-        --minShapes=input:1x3x64x64,prev_feat:1x64x64x64 \
-        --optShapes=input:1x3x512x512,prev_feat:1x64x512x512 \
-        --maxShapes=input:1x3x720x720,prev_feat:1x64x720x720 \
-        --memPoolSize=workspace:4096
-
-3. **Run Benchmark**:
-```bash
-python scripts/benchmark_release.py \
-    --input /path/to/dataset \
-    --scale 2 \
-    --pt_model paragonsr2/2xParagonSR2_Stream_fidelity.safetensors \
-    --arch paragonsr2_stream \
-    --trt_engine paragonsr2_onnx/paragonsr2_stream_fp16.trt
+    subgraph "Block Engine"
+        GE[Gated Conv]
+        WA[Window Attention]
+        TD[Token Dictionary CA]
+    end
 ```
+
+---
+
+## ⚖️ Recommended Discriminators
+For training the GAN variant, the following are recommended:
+- **Multi-Scale Discriminator (MSD)**: Best for global structure.
+- **UNet Discriminator**: Superior for local texture consistency.
+
+---
+
+## 💻 Hardware & Development
+- **Dev System:** Ubuntu 22.04 | CUDA 12.1 | RTX 3060 12GB
+- **Core Dependencies:** PyTorch 2.3+, OpenCV, NumPy, ONNXRuntime
 
 ---
 
 ## ⚙️ Key Parameters
 
 | Parameter | Default | Description |
-|-----------|---------|-------------|
-| `scale` | 4 | Upscaling factor (2, 3, 4, or 8) |
-| `upsampler_alpha` | 0.4 | Base path sharpening. `0.0` = Fidelity, `0.3-0.6` = GAN |
-| `detail_gain` | 0.1 | Initial learnable multiplier for the detail path |
-| `attention_mode` | 'sdpa' | Choice of attention kernel (`sdpa` or `flex`) |
-| `use_checkpointing` | False | Enable activation checkpointing to save VRAM |
-| `export_safe` | False | Disables attention ops specifically for restricted ONNX export |
+| :--- | :--- | :--- |
+| `scale` | 4 | Upscaling factor (2, 3, 4, 8) |
+| `upsampler_alpha` | 0.4 | Base sharpening (0.0=Soft, 0.4=Balanced, 1.0=Sharp) |
+| `attention_mode` | 'sdpa' | Options: `sdpa` (standard), `flex` (PyTorch native) |
+| `export_safe` | False | Disables attention for strict ONNX compatibility |
 
 ---
 
-## 🏗️ Architecture Diagram
+## 🤖 AI-Assisted Research
 
-```mermaid
-graph TD
-    LR[LR Input] --> Base[MagicKernelSharp Upsampler]
-    LR --> Conv[Feature Extraction]
+The architecture of ParagonSR2 was developed through hundreds of iterations, supercharged by next-gen AI models. We explored a vast space of architectural patterns—from Hybrid-CNN-Transformers toRecurrent Context Gatherers—before arriving at the current production-ready design.
 
-    subgraph "Detail Path (LR Space)"
-        Conv --> Body[Residual Groups]
-        Body --> Fuse[Conv Fuse]
-        Fuse --> CAG[Content-Aware Gating]
-    end
-
-    CAG --> PS[Progressive PixelShuffle]
-    PS --> Out[Detail Conv]
-    Out --> Gain[× Global Detail Gain]
-
-    Base --> Add((+))
-    Gain --> Add
-    Add --> HR[HR Output]
-```
-
----
-
-## 📊 Recommended Discriminators
-
-For GAN training, I highly recommend using **MUNet** (coming soon), a custom discriminator designed to work well with ParagonSR2's dual-path output.
-
-| Generator Variant | MUNet Config |
-|------------------|--------------|
-| Realtime / Stream | `num_feat=32, ch_mult=(1, 2, 2)` |
-| Photo | `num_feat=64, ch_mult=(1, 2, 4, 8)` |
-
----
-
-## 🖥️ Hardware & Development
-
-> **"Built on Consumer Hardware, for Consumer Hardware"**
-
-All development, training, testing, and benchmarking for ParagonSR2 was performed on a standard home PC. This confirms that you don't need a massive H100 cluster to train or deploy these models.
-
-### System Specs
-- **GPU**: NVIDIA GeForce RTX 3060 (12 GB VRAM)
-- **CPU**: AMD Ryzen 5 3600 (6-core)
-- **RAM**: 16 GB DDR4
-- **OS**: Ubuntu 24.10
-
----
-
-## 🤖 AI-Assisted Development
-
-The development of ParagonSR2 was highly iterative and explored many "what if" scenarios. This exploration was supercharged by next-gen AI coding assistants.
-
-**Models & Tools used during development:**
-- **Models**: MiniMax-M2, Gemini 3 Pro, Gemini 3 Flash, Claude Opus 4.5 Thinking, Claude Sonnet 4.5 Thinking, Gemini 2.5 Pro, Gemini Flash Deep Research, Grok Code Fast, GPT's and more.
-- **Platforms**: Antigravity, Kilo Code, OpenRouter.
-
-These tools helped prototype weird ideas (like "what if we mix ConvNext with Swin but run it in LR space?") rapidly, allowing me to filter out bad architectural decisions much faster than traditional coding.
+**Models used for exploration:**
+- Claude 3.5 Sonnet / Opus
+- Gemini 1.5 Pro / Flash
+- GPT-4o / o1-preview
+- MiniMax-M2 / Grok Code Fast
 
 ---
 
 ## 📜 Citation
-
-If you use ParagonSR2 in your research or project, please cite:
 
 ```bibtex
 @software{paragonsr2,

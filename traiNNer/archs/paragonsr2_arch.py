@@ -957,21 +957,33 @@ class AdaptiveConvFFN(nn.Module):
 
 
 class ATDTransformerLayer(nn.Module):
+    """
+    Advanced Token Dictionary (ATD) Transformer Layer.
+
+    A high-performance transformer layer designed specifically for SISR.
+    Integrates three distinct attention mechanisms:
+    1.  **Standard Window Attention**: Captures local structural information.
+    2.  **Adaptive Token CA**: Attends to the learned global token dictionary.
+    3.  **Adaptive Category MSA**: Groups tokens by similarity for global context.
+
+    Includes a convolutional FFN for robust local texture mixing.
+    """
+
     def __init__(
         self,
-        dim,
-        input_resolution,
-        num_heads,
-        window_size,
-        shift_size,
-        category_size,
-        num_tokens,
-        reducted_dim,
-        convffn_kernel_size,
-        mlp_ratio,
-        qkv_bias=True,
-        attention_mode="sdpa",
-        export_safe=False,
+        dim: int,
+        input_resolution: tuple[int, int],
+        num_heads: int,
+        window_size: int,
+        shift_size: int,
+        category_size: int,
+        num_tokens: int,
+        reducted_dim: int,
+        convffn_kernel_size: int,
+        mlp_ratio: float,
+        qkv_bias: bool = True,
+        attention_mode: str = "sdpa",
+        export_safe: bool = False,
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -1071,20 +1083,25 @@ class ATDTransformerLayer(nn.Module):
 
 class ATDBlock(nn.Module):
     """
-    Wraps a sequence of ATDTransformerLayers and manages the Token Dictionary.
-    Compatible with ParagonSR2 body structure.
+    Advanced Token Dictionary (ATD) Block.
+
+    Manages a sequence of ATDTransformerLayers and the persistent Token Dictionary (TD).
+    The TD acts as a "visual memory" of common high-frequency features (pores, fabric, grain)
+    learned during training.
+
+    The block handles window partitioning, padding/cropping, and iterative TD refinement.
     """
 
     def __init__(
         self,
-        dim,
-        input_resolution=(64, 64),
-        depth=6,
-        num_heads=6,
-        window_size=8,
-        num_tokens=64,
-        attention_mode="sdpa",
-        export_safe=False,
+        dim: int,
+        input_resolution: tuple[int, int] = (64, 64),
+        depth: int = 6,
+        num_heads: int = 6,
+        window_size: int = 8,
+        num_tokens: int = 64,
+        attention_mode: str = "sdpa",
+        export_safe: bool = False,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -1378,9 +1395,11 @@ class ParagonSR2(nn.Module):
 @ARCH_REGISTRY.register()
 def paragonsr2_realtime(scale: int = 4, **kw) -> ParagonSR2:
     """
-    Realtime Tier: Optimized for maximum throughput and low latency.
-    Ideal for mobile devices or high-framerate video upscaling.
-    Uses NanoBlocks (Depthwise-Conv sandwich).
+    Realtime Tier: Optimized for extreme speed on mobile and edge devices.
+    Uses NanoBlocks (Simple MBConv).
+
+    - Extremely low parameter count.
+    - Designed for high-speed preview or low-power hardware.
     """
     return ParagonSR2(
         scale=scale,
@@ -1400,6 +1419,10 @@ def paragonsr2_stream(scale: int = 4, **kw) -> ParagonSR2:
     Stream Tier: Balanced for video streaming and broad compatibility.
     Provides better artifact suppression and consistency than Realtime.
     Uses StreamBlocks (Multi-scale Gated Convs).
+
+    - Higher depth than Realtime.
+    - Captures broader context via dilated convolutions.
+    - Excellent for high-bitrate video or HD restoration.
     """
     return ParagonSR2(
         scale=scale,
@@ -1419,6 +1442,10 @@ def paragonsr2_photo(scale: int = 4, **kw) -> ParagonSR2:
     Photo Tier: High-quality restoration for photography and paintings.
     Features local window attention for structural consistency.
     Uses PhotoBlocks (Conv mixing + Window Attention).
+
+    - Significant quality jump from Stream.
+    - Window attention resolves medium-range textures.
+    - Best for general personal photography and digital art.
     """
     return ParagonSR2(
         scale=scale,

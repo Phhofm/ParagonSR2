@@ -251,6 +251,9 @@ class PyTorchRunner:
 class TRTRunner:
     """
     TensorRT engine runner for benchmarking.
+
+    Manages dynamic shape input, context execution, and multi-backend fallback
+    (V2/V3) to ensure compatibility with various TRT versions.
     """
 
     def __init__(self, engine_path: str, is_video: bool = False) -> None:
@@ -361,7 +364,15 @@ def benchmark_pytorch(
     device: str = "cuda",
     mode_suffix: str = "",
 ) -> dict:
-    """Benchmark PyTorch model on a list of images."""
+    """
+    Benchmark PyTorch model on a list of images.
+
+    Handles:
+    - Preprocessing and window padding if required.
+    - Synchronized timing via CUDA Events.
+    - Dynamic shape warmup for torch.compile stability.
+    - VRAM peak usage tracking.
+    """
     mode = ("PyTorch FP16" if use_amp else "PyTorch FP32") + mode_suffix
     print(f"\n--- Benchmarking {mode} ---")
 
@@ -458,7 +469,12 @@ def benchmark_tensorrt(
     is_video: bool = False,
     device: str = "cuda",
 ) -> dict:
-    """Benchmark TensorRT engine on a list of images."""
+    """
+    Benchmark TensorRT engine on a list of images.
+
+    Verifies performance against dynamic resolutions and provides
+    comparative FPS/Latency metrics for TRT engines.
+    """
     mode = f"TensorRT FP16{' (Video)' if is_video else ''}"
     print(f"\n--- Benchmarking {mode} ---")
 
