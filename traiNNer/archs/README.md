@@ -77,6 +77,12 @@ The architecture is designed to scale from modern mobile devices to archival-gra
 -   **Tech**: Uses `StreamBlock` (Multi-rate Depthwise Context).
 -   **Why**: Gating mechanisms combined with multi-stage context gathering work exceptionally well for removing compression artifacts (de-blocking) without the computational cost of Attention.
 
+### Photo (Base)
+-   **Goal**: General-purpose photography enhancement.
+-   **Tech**: Uses `PhotoBlock` (Conv + Shifted Window Attention).
+-   **Why**: Combines local convolutional texture processing with medium-range structural awareness via Window Attention.
+-   **Optimization**: Standard SDPA attention for broad hardware compatibility.
+
 ### Pro (Enthusiast)
 -   **Goal**: Absolute state-of-the-art restoration for archival, medical, or scientific use.
 -   **Tech**: Uses `ProBlock` with **Token Dictionary Cross-Attention** and **Channel Attention**.
@@ -101,19 +107,19 @@ To prevent "ghosting" artifacts during scene cuts, the inference script monitors
 
 ---
 
-## 5. Technical Innovations in Version 11
+## 5. The ProBlock: A Universal Engine
 
-### ProBlock: The Universal Engine
 The `ProBlock` is designed to leave no quality on the table. It processes information through four specialized stages:
-1.  **Convolutional Base**: Extracts local features and textures.
-2.  **SE Channel Attention**: Dynamically weights channel importance based on global image context.
-3.  **Window Attention**: Ensures structural consistency and captures medium-range dependencies.
+
+1.  **Convolutional Base**: Extracts local features and textures via depthwise-separable convolutions.
+2.  **SE Channel Attention**: Dynamically weights channel importance based on global image context (Squeeze-and-Excitation).
+3.  **Window Attention**: Ensures structural consistency and captures medium-range dependencies using Swin-style shifted windows.
 4.  **Token Dictionary CA**: Attends to a learned global dictionary of "visual concepts," enabling the reconstruction of complex, repeating textures (e.g., skin pores, fabric weaves).
 
 ### Stability at Scale
-Training deep networks (36+ blocks) is notoriously unstable. ParagonSR2 version 11 introduces:
--   **RMSNorm in FP32**: We compute the norm variance in FP32 to prevent numerical overflow/underflow, which is common in deep SR networks trained with AMP (Mixed Precision).
--   **LayerScale**: Every advanced block includes a learnable per-channel scaling factor (`LayerScale`). This forces the network to start with identity-like transforms and gradually learn larger updates, drastically improving convergence stability.
+Training deep networks (36+ blocks) is notoriously unstable. ParagonSR2 includes critical stability mechanisms:
+-   **RMSNorm in FP32**: The norm variance is computed in FP32 to prevent numerical overflow/underflow, which is common in deep SR networks trained with AMP (Mixed Precision).
+-   **LayerScale**: Every advanced block includes a learnable per-channel scaling factor. This forces the network to start with identity-like transforms and gradually learn larger updates, drastically improving convergence stability.
 
 ---
 
@@ -141,16 +147,35 @@ network_g:
 
 ---
 
-## 7. History: Versions 8 to 11
+## 7. Key Configuration Parameters
 
-The final iterations focused on "Product-First" stability and performance, stripping away auxiliary complexity in favor of raw throughput and deployment reliability.
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `scale` | 4 | Upscaling factor (2, 3, 4, 8) |
+| `upsampler_alpha` | 0.4 | Base sharpening (0.0=Soft/Fidelity, 0.4=Balanced, 1.0=Sharp) |
+| `attention_mode` | 'sdpa' | Attention backend: `sdpa` (standard) or `flex` (PyTorch 2.5+) |
+| `export_safe` | False | Disables attention for strict ONNX/TRT compatibility |
+| `use_checkpointing` | False | Enables gradient checkpointing for VRAM savings |
+| `window_size` | 16 | Window size for Photo/Pro variants |
 
-### Deployment-First Window Attention
--   **Simplified**: Window partitioning was refactored for maximum stability during ONNX export.
--   **Flexible**: Added `attention_mode` flag (`sdpa` or `flex`).
--   **Export Safe**: The `export_safe` flag disables attention specifically for restricted hardware.
+---
 
-### Universal Compatibility
--   **PixelShuffle**: Replaced progressive upsampling with a single, highly-optimized PixelShuffle head for all scales (2x, 3x, 4x, 8x).
--   **Legacy Mapping**: Includes a mapping layer to ensure compatibility with models trained on older versions (v7/v8).
--   **Version 11 Quality Update**: The flagship update introducing the **Pro tier** for absolute maximum PSNR/SSIM across diverse content types.
+## 8. Deployment Notes
+
+### TensorRT Compatibility
+ParagonSR2 is designed for **100% TensorRT compatibility**:
+-   Uses standard `PixelShuffle` instead of custom upsampling ops.
+-   `AdaptiveAvgPool` is automatically patched to `ReduceMean` during ONNX export.
+-   Window Attention uses only ONNX-compatible operations.
+
+### Recommended Export Flow
+```bash
+# 1. Export to ONNX
+python scripts/convert_onnx_release.py --arch paragonsr2_photo --scale 2 --checkpoint model.safetensors
+
+# 2. Build TensorRT Engine
+trtexec --onnx=model.onnx --saveEngine=model.trt --fp16 \
+        --minShapes=input:1x3x64x64 \
+        --optShapes=input:1x3x720x1280 \
+        --maxShapes=input:1x3x1080x1920
+```

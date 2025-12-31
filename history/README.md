@@ -101,7 +101,7 @@ The road to the final **ParagonSR2** was paved with many experiments. This docum
 
 | Variant | Logic | Primary Use | Deployment |
 | :--- | :--- | :--- | :--- |
-| **Realtime** | NanoBlock (MBConv) | 60FPS+ Video | Mobile / Edge |
+| **Realtime** | NanoBlock (MBConv) | High-Speed Video | Mobile / Edge |
 | **Stream** | StreamBlock (Gated Conv) | Quality Streaming | Desktop Playback |
 | **Photo** | PhotoBlock (Attn + Conv) | General Photography | Pro Photo Editing |
 | **Pro** | ProBlock (Global + Local) | Scientific / Archival | Cloud / HPC |

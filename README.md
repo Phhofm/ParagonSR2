@@ -38,9 +38,6 @@ ParagonSR2 features a native **Feature-Tap Temporal Feedback** loop. By injectin
 **Verdict: "100% TensorRT Compatible"**
 Avoids complex ops that break inference engines. Uses standard `PixelShuffle` and `WindowAttention` to ensure immediate deployment on NVIDIA TensorRT and ONNX Runtime.
 
-### 5. Version 11: The Quality Milestone 🚀
-The latest version 11 introduces **Token Dictionary Cross-Attention** and extreme depth (36 blocks) for the Pro variant, setting a new benchmark for PSNR/SSIM on consumer hardware.
-
 ---
 
 ## 📽️ Video Mode Guide
@@ -111,18 +108,55 @@ To achieve temporal stabilization, use the following workflow:
 
 ## 📈 Quality Metrics
 
-Comparative results (2x Scale) on standard datasets.
+Comparative results (2x Scale) on validation datasets. Metrics computed with [pyiqa](https://github.com/chaofengc/IQA-PyTorch).
 
-| Dataset | Metric | Realtime | Stream | Photo | **Pro (v11)** |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **Urban100** | PSNR | 31.84 | 32.15 | 32.74 | **33.12** |
-| | SSIM | 0.9254 | 0.9312 | 0.9385 | **0.9421** |
-| **liu4k** | PSNR | 34.52 | 34.88 | 35.41 | **35.75** |
-| | SSIM | 0.9310 | 0.9365 | 0.9412 | **0.9458** |
-| **BHI100** | PSNR | 30.12 | 30.55 | 31.18 | **31.42** |
-| | SSIM | 0.8842 | 0.8914 | 0.9023 | **0.9087** |
+### Urban100
 
----
+| Metric | Realtime | Stream | Photo |
+| :--- | :---: | :---: | :---: |
+| PSNR ↑ | 27.38 | 28.02 | **29.88** |
+| PSNR-Y ↑ | 27.56 | 28.23 | **30.15** |
+| SSIM ↑ | 0.8777 | 0.8914 | **0.9163** |
+| SSIM-C ↑ | 0.8740 | 0.8876 | **0.9124** |
+| LPIPS ↓ | 0.1280 | 0.1159 | **0.0654** |
+| DISTS ↓ | 0.0943 | 0.0879 | **0.0756** |
+| TOPIQ-FR ↑ | 0.7727 | 0.8050 | **0.8527** |
+
+### liu4k
+
+| Metric | Realtime | Stream | Photo |
+| :--- | :---: | :---: | :---: |
+| PSNR ↑ | 35.00 | 35.68 | **36.23** |
+| PSNR-Y ↑ | 35.32 | 36.04 | **36.54** |
+| SSIM ↑ | 0.9500 | 0.9544 | **0.9587** |
+| SSIM-C ↑ | 0.9483 | 0.9524 | **0.9576** |
+| LPIPS ↓ | 0.0801 | 0.0780 | **0.0571** |
+| DISTS ↓ | 0.0700 | 0.0669 | **0.0588** |
+| TOPIQ-FR ↑ | 0.8506 | 0.8781 | **0.8780** |
+
+### BHI100
+
+| Metric | Realtime | Stream | Photo |
+| :--- | :---: | :---: | :---: |
+| PSNR ↑ | **8.95** | 8.89 | 8.93 |
+| PSNR-Y ↑ | **9.50** | 9.44 | 9.49 |
+| SSIM ↑ | **0.1353** | 0.1328 | 0.1329 |
+| SSIM-C ↑ | **0.1290** | 0.1266 | 0.1269 |
+| LPIPS ↓ | **0.7354** | 0.7326 | 0.7240 |
+| DISTS ↓ | 0.3709 | 0.3702 | **0.3636** |
+| TOPIQ-FR ↑ | 0.2438 | **0.2447** | 0.2430 |
+
+### psisrd_val125
+
+| Metric | Realtime | Stream | Photo |
+| :--- | :---: | :---: | :---: |
+| PSNR ↑ | **8.46** | 8.43 | 8.44 |
+| PSNR-Y ↑ | **9.29** | 9.25 | 9.26 |
+| SSIM ↑ | **0.2504** | 0.2462 | 0.2467 |
+| SSIM-C ↑ | **0.2306** | 0.2266 | 0.2274 |
+| LPIPS ↓ | **0.8288** | 0.8278 | 0.8353 |
+| DISTS ↓ | 0.4215 | 0.4231 | **0.4173** |
+| TOPIQ-FR ↑ | **0.2436** | 0.2435 | 0.2420 |
 
 ## 🛠️ Quick Start
 
@@ -206,11 +240,11 @@ For training the GAN variant, the following are recommended:
 
 ## 🤖 AI-Assisted Research
 
-The architecture of ParagonSR2 was developed through hundreds of iterations, supercharged by next-gen AI models. We explored a vast space of architectural patterns—from Hybrid-CNN-Transformers toRecurrent Context Gatherers—before arriving at the current production-ready design.
+The architecture of ParagonSR2 was developed through hundreds of iterations, supercharged by next-gen AI models. We explored a vast space of architectural patterns—from Hybrid-CNN-Transformers to Recurrent Context Gatherers—before arriving at the current production-ready design.
 
 **Models used for exploration:**
 - Claude 3.5 Sonnet / Opus
-- Gemini 1.5 Pro / Flash
+- Gemini 3 Pro / Flash
 - GPT-4o / o1-preview
 - MiniMax-M2 / Grok Code Fast
 
