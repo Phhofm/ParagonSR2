@@ -80,29 +80,7 @@ To achieve temporal stabilization, use the following workflow:
 ### Performance (RTX 3060 12GB)
 **Test Data:** Urban100 (100 images) | **Task:** 2x Upscaling
 
-#### **Realtime (Nano)**
-| Backend | Avg Latency | FPS | Peak VRAM |
-| :--- | :---: | :---: | :---: |
-| PyTorch FP32 | 9.4 ms | 106 | 0.05 GB |
-| PyTorch FP16 | 7.9 ms | 126 | 0.03 GB |
-| PyTorch Compiled | 2.5 ms | 400 | 0.03 GB |
-| TensorRT FP16 | **2.3 ms** | **431** | **0.03 GB** |
 
-#### **Stream (Tiny)**
-| Backend | Avg Latency | FPS | Peak VRAM |
-| :--- | :---: | :---: | :---: |
-| PyTorch FP32 | 23.1 ms | 43 | 0.06 GB |
-| PyTorch FP16 | 18.5 ms | 54 | 0.03 GB |
-| PyTorch Compiled | 11.2 ms | 89 | 0.03 GB |
-| TensorRT FP16 | **10.0 ms** | **100** | **0.03 GB** |
-
-#### **Photo (Base)**
-| Backend | Avg Latency | FPS | Peak VRAM |
-| :--- | :---: | :---: | :---: |
-| PyTorch FP32 | 112.4 ms | 8.9 | 0.09 GB |
-| PyTorch FP16 | 78.5 ms | 12.7 | 0.04 GB |
-| PyTorch Compiled | 45.2 ms | 22.1 | 0.04 GB |
-| TensorRT FP16 | **39.5 ms** | **25.3** | **0.03 GB** |
 
 ---
 
