@@ -78,7 +78,7 @@ To achieve temporal stabilization, use the following workflow:
 ## 📊 Benchmark Results
 
 ### Performance (RTX 3060 12GB)
-**Test Data:** Urban100 (100 images) | **Task:** 2x Upscaling
+**Test Data:** Urban100 (100 images), x2 LR, various sizes -> dynamic input / onnx / trt and not static, to test & prove it works with dynamic input
 **Hardware:** NVIDIA GeForce RTX 3060 (11.6 GB)
 
 Realtime
