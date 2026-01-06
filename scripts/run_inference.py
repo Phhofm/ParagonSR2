@@ -764,6 +764,12 @@ def main() -> None:
         action="store_true",
         help="Disable temporal blending for video (useful for comparison)",
     )
+    parser.add_argument(
+        "--suffix",
+        type=str,
+        default="",
+        help='Filename suffix (default: ""). Use "_paragonsr2" for classic behavior.',
+    )
 
     args = parser.parse_args()
 
@@ -803,7 +809,7 @@ def main() -> None:
 
         for f in files:
             is_video = f.suffix.lower() in [".mp4", ".mkv", ".avi", ".mov"]
-            out_name = f.stem + "_paragonsr2" + (".mp4" if is_video else ".png")
+            out_name = f.stem + args.suffix + (".mp4" if is_video else ".png")
             out_path = output_dir / out_name
 
             if out_path.exists():
