@@ -78,31 +78,43 @@ To achieve temporal stabilization, use the following workflow:
 ## 📊 Benchmark Results
 
 ### Performance (RTX 3060 12GB)
-**Test Data:** Urban100 (100 images) | **Task:** 2x Upscaling
+**Test Data:** Urban100 (100 images), x2 LR, various sizes -> dynamic input / onnx / trt and not static, to test & prove it works with dynamic input
+**Hardware:** NVIDIA GeForce RTX 3060 (11.6 GB)
 
-#### **Realtime (Nano)**
-| Backend | Avg Latency | FPS | Peak VRAM |
-| :--- | :---: | :---: | :---: |
-| PyTorch FP32 | 9.4 ms | 106 | 0.05 GB |
-| PyTorch FP16 | 7.9 ms | 126 | 0.03 GB |
-| PyTorch Compiled | 2.5 ms | 400 | 0.03 GB |
-| TensorRT FP16 | **2.3 ms** | **431** | **0.03 GB** |
+Realtime
 
-#### **Stream (Tiny)**
 | Backend | Avg Latency | FPS | Peak VRAM |
-| :--- | :---: | :---: | :---: |
-| PyTorch FP32 | 23.1 ms | 43 | 0.06 GB |
-| PyTorch FP16 | 18.5 ms | 54 | 0.03 GB |
-| PyTorch Compiled | 11.2 ms | 89 | 0.03 GB |
-| TensorRT FP16 | **10.0 ms** | **100** | **0.03 GB** |
+|---------|-------------|-----|-----------|
+| PyTorch FP32 | 84.4 ms | 11.8 | 0.25 GB |
+| PyTorch FP16 | 86.8 ms | 11.5 | 0.09 GB |
+| PyTorch FP16 (Compiled) | 46.6 ms | 21.5 | 0.08 GB |
+| TensorRT FP16 | 2.3 ms | 431.4 | 0.03 GB |
 
-#### **Photo (Base)**
+
+
+Stream
+
 | Backend | Avg Latency | FPS | Peak VRAM |
-| :--- | :---: | :---: | :---: |
-| PyTorch FP32 | 112.4 ms | 8.9 | 0.09 GB |
-| PyTorch FP16 | 78.5 ms | 12.7 | 0.04 GB |
-| PyTorch Compiled | 45.2 ms | 22.1 | 0.04 GB |
-| TensorRT FP16 | **39.5 ms** | **25.3** | **0.03 GB** |
+|---------|-------------|-----|-----------|
+| PyTorch FP32 | 217.3 ms | 4.6 | 0.49 GB |
+| PyTorch FP16 | 192.2 ms | 5.2 | 0.21 GB |
+| PyTorch FP16 (Compiled) | 96.7 ms | 10.3 | 0.17 GB |
+| TensorRT FP16 | 10.0 ms | 100.5 | 0.03 GB |
+
+
+
+Photo
+
+| Backend | Avg Latency | FPS | Peak VRAM |
+|---------|-------------|-----|-----------|
+| PyTorch FP16 (No Attn) | 159.2 ms | 6.3 | 0.42 GB |
+| PyTorch FP16 (No Attn)(Compiled) | 164.6 ms | 6.1 | 0.38 GB |
+| PyTorch FP16 (SDPA) | 171.1 ms | 5.8 | 0.65 GB |
+| PyTorch FP16 (SDPA)(Compiled) | 97.6 ms | 10.3 | 0.39 GB |
+| PyTorch FP16 (Flex) | 1061.7 ms | 0.9 | 4.5 GB |
+| PyTorch FP16 (Flex)(Compiled) | 85.3 | 11.7 | 0.39 GB |
+| TensorRT FP16 | 39.5 ms | 25.3 | 0.03 GB |
+
 
 ---
 
