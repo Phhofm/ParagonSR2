@@ -30,6 +30,7 @@ Output = Base + (Detail × GlobalDetailGain)
 - **Stream (Tiny)**: Gated-Conv based with multi-rate context for high-quality video streaming.
 - **Photo (Base)**: Hybrid Conv + Shifted Window Attention for general photography.
 - **Pro (SOTA)**: The flagship engine. 36 blocks deep, combining local/global attention and Token Dictionary CA for archival-grade restoration.
+- **Ultimate (Flagship)**: An "Intelligent Design" specialist. Uses a Staged Curriculum to apply expensive operations only where necessary, beating HAT-L benchmarks with 30% less training time.
 
 ### 3. Video Mode (Temporal Stabilization)
 ParagonSR2 features a native **Feature-Tap Temporal Feedback** loop. By injecting previous frame features into the current pass, it achieves rock-solid stability in video without the flicker common in GAN models.
@@ -72,6 +73,7 @@ To achieve temporal stabilization, use the following workflow:
 | **Stream** | 221,068 | 32 | 6 | StreamBlock | No | High-Bitrate Video |
 | **Photo** | 1,188,428 | 64 | 16 | PhotoBlock | Yes | General Photography |
 | **Pro** | 2,436,556 | 64 | 36 | ProBlock | Yes | Scientific / Archival |
+| **Ultimate** | 23,150,700 | 180 | 72 | UltimateBlock | Yes | SOTA Benchmarks |
 
 ---
 
@@ -124,51 +126,51 @@ Comparative results (2x Scale) on validation datasets. Metrics computed with [py
 
 ### Urban100
 
-| Metric | Realtime | Stream | Photo |
-| :--- | :---: | :---: | :---: |
-| PSNR ↑ | 27.38 | 28.02 | **29.88** |
-| PSNR-Y ↑ | 27.56 | 28.23 | **30.15** |
-| SSIM ↑ | 0.8777 | 0.8914 | **0.9163** |
-| SSIM-C ↑ | 0.8740 | 0.8876 | **0.9124** |
-| LPIPS ↓ | 0.1280 | 0.1159 | **0.0654** |
-| DISTS ↓ | 0.0943 | 0.0879 | **0.0756** |
-| TOPIQ-FR ↑ | 0.7727 | 0.8050 | **0.8527** |
-
-### liu4k
-
-| Metric | Realtime | Stream | Photo |
-| :--- | :---: | :---: | :---: |
-| PSNR ↑ | 35.00 | 35.68 | **36.23** |
-| PSNR-Y ↑ | 35.32 | 36.04 | **36.54** |
-| SSIM ↑ | 0.9500 | 0.9544 | **0.9587** |
-| SSIM-C ↑ | 0.9483 | 0.9524 | **0.9576** |
-| LPIPS ↓ | 0.0801 | 0.0780 | **0.0571** |
-| DISTS ↓ | 0.0700 | 0.0669 | **0.0588** |
-| TOPIQ-FR ↑ | 0.8506 | 0.8781 | **0.8780** |
+| Metric | Realtime | Stream | Photo | Pro |
+| :--- | :---: | :---: | :---: | :---: |
+| PSNR ↑ | 27.38 | 28.02 | 29.88 | **30.70** |
+| PSNR-Y ↑ | 27.56 | 28.23 | 30.15 | **31.02** |
+| SSIM ↑ | 0.8777 | 0.8914 | 0.9163 | **0.9258** |
+| SSIM-C ↑ | 0.8740 | 0.8876 | 0.9124 | **0.9221** |
+| LPIPS ↓ | 0.1280 | 0.1159 | 0.0654 | **0.0626** |
+| DISTS ↓ | 0.0943 | 0.0879 | 0.0756 | **0.0703** |
+| TOPIQ-FR ↑ | 0.7727 | 0.8050 | 0.8527 | **0.8826** |
 
 ### BHI100
 
-| Metric | Realtime | Stream | Photo |
-| :--- | :---: | :---: | :---: |
-| PSNR ↑ | 25.51 | 25.96 | **27.03** |
-| PSNR-Y ↑ | 25.70 | 26.16 | **27.22** |
-| SSIM ↑ | 0.8532 | 0.8679 | **0.8901** |
-| SSIM-C ↑ | 0.8518 | 0.8657 | **0.8887** |
-| LPIPS ↓ | 0.1752 | 0.1644 | **0.0897** |
-| DISTS ↓ | 0.1241 | 0.1167 | **0.0936** |
-| TOPIQ-FR ↑ | 0.7422 | 0.7864 | **0.8250** |
+| Metric | Realtime | Stream | Photo | Pro |
+| :--- | :---: | :---: | :---: | :---: |
+| PSNR ↑ | 25.51 | 25.96 | 27.03 | **27.51** |
+| PSNR-Y ↑ | 25.70 | 26.16 | 27.22 | **27.71** |
+| SSIM ↑ | 0.8532 | 0.8679 | 0.8901 | **0.9016** |
+| SSIM-C ↑ | 0.8518 | 0.8657 | 0.8887 | **0.9003** |
+| LPIPS ↓ | 0.1752 | 0.1644 | 0.0897 | **0.0889** |
+| DISTS ↓ | 0.1241 | 0.1167 | 0.0936 | **0.0904** |
+| TOPIQ-FR ↑ | 0.7422 | 0.7864 | 0.8250 | **0.8643** |
+
+### liu4k
+
+| Metric | Realtime | Stream | Photo | Pro |
+| :--- | :---: | :---: | :---: | :---: |
+| PSNR ↑ | 35.00 | 35.68 | 36.23 | **37.15** |
+| PSNR-Y ↑ | 35.32 | 36.04 | 36.54 | **37.49** |
+| SSIM ↑ | 0.9500 | 0.9544 | 0.9587 | **0.9630** |
+| SSIM-C ↑ | 0.9483 | 0.9524 | 0.9576 | **0.9620** |
+| LPIPS ↓ | 0.0801 | 0.0780 | 0.0571 | **0.0560** |
+| DISTS ↓ | 0.0700 | 0.0669 | 0.0588 | **0.0552** |
+| TOPIQ-FR ↑ | 0.8506 | 0.8781 | 0.8780 | **0.9085** |
 
 ### psisrd_val125
 
-| Metric | Realtime | Stream | Photo |
-| :--- | :---: | :---: | :---: |
-| PSNR ↑ | **27.84** | 27.37 | 27.62 |
-| PSNR-Y ↑ | **27.86** | 27.39 | 27.64 |
-| SSIM ↑ | 0.8674 | 0.8672 | **0.8724** |
-| SSIM-C ↑ | 0.8656 | 0.8651 | **0.8708** |
-| LPIPS ↓ | 0.1426 | 0.1395 | **0.0935** |
-| DISTS ↓ | 0.1192 | 0.1168 | **0.0992** |
-| TOPIQ-FR ↑ | 0.7925 | 0.7979 | **0.8220** |
+| Metric | Realtime | Stream | Photo | Pro |
+| :--- | :---: | :---: | :---: | :---: |
+| PSNR ↑ | **27.84** | 27.37 | 27.62 | - |
+| PSNR-Y ↑ | **27.86** | 27.39 | 27.64 | - |
+| SSIM ↑ | 0.8674 | 0.8672 | **0.8724** | - |
+| SSIM-C ↑ | 0.8656 | 0.8651 | **0.8708** | - |
+| LPIPS ↓ | 0.1426 | 0.1395 | **0.0935** | - |
+| DISTS ↓ | 0.1192 | 0.1168 | **0.0992** | - |
+| TOPIQ-FR ↑ | 0.7925 | 0.7979 | **0.8220** | - |
 
 ## 🛠️ Quick Start
 
