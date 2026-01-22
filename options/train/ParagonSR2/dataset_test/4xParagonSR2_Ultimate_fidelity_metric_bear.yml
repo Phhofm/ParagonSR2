@@ -1,0 +1,136 @@
+# ============================================================================
+# PARAGONSR2 ULTIMATE: FIDELITY TRAINING CONFIGURATION (BEAR DATASET)
+# ============================================================================
+# Model: ParagonSR2 Ultimate "Intelligent Design" Flagship
+# Purpose: High-fidelity training with metrics (PSNR/SSIM) focus
+# Hardware: Optimized for RTX 3060 (12GB) / Ryzen 3600 / 16GB RAM
+# Dataset: BEAR (Filtered BHI Full) for dataset comparison
+# Performance: ~1.64 it/s | Peak VRAM: ~9.27 GB (RTX 3060)
+# ============================================================================
+
+name: 4xParagonSR2_Ultimate_fidelity_metric_bear
+#model_type: SRModel
+scale: 4
+#manual_seed: 0 # I forgot to use manual seed, which is meant for reproductibility (weight initialization and data shuffling), however I am changing the whole dataset for different runs, so image order does not influence anything since its different images anyway. This is still fine for comparing datasets.
+
+# VRAM & COMPILER SYSTEM
+# ----------------------------------------------------------------------------
+auto_vram_management:
+  enabled: false # Disabled to maintain fixed iteration speed and batch stability
+
+# AMP & TENSOR CORE OPTIMIZATIONS
+use_amp: true # Use Automatic Mixed Precision for speed and VRAM savings
+amp_bf16: true # BF16 is essential to prevent NaNs in deep transformers
+use_channels_last: true # Tensor Core optimization (up to 2x speedup on 3060)
+num_gpu: auto
+use_compile: false # Avoids global graph freeze on 16GB RAM systems
+
+datasets:
+  train:
+    name: BEAR
+    type: pairedimagedataset
+    dataroot_gt: /home/phips/Documents/dataset/BHI/BEAR
+    dataroot_lq: /home/phips/Documents/dataset/BHI/BEAR_lr_x4
+
+    # PATCH & BATCH: Balanced for 12GB VRAM
+    lq_size: 64 # Optimal patch size for structure/speed balance
+    batch_size_per_gpu: 4 # Fixed batch 4 (~9.3GB VRAM use)
+    num_worker_per_gpu: 4 # Matches Ryzen 3600 core count for fast prefetching
+    accum_iter: 1 # Direct weight updates for faster initial convergence
+    prefetch_mode: ~ # Uses standard PyTorch DataLoader for maximum stability
+    pin_memory: true
+
+    use_hflip: true
+    use_rot: true
+
+  val:
+    name: Urban100
+    type: pairedimagedataset
+    dataroot_gt: /home/phips/Documents/dataset/Urban100/HR
+    dataroot_lq: /home/phips/Documents/dataset/Urban100/x4
+
+# ARCHITECTURE CONFIGURATION
+# ----------------------------------------------------------------------------
+network_g:
+  type: paragonsr2_ultimate # Flagship variant (~23.1M parameters)
+
+  # ATTENTION: SDPA is essential for efficient window attention via fused kernels.
+  # This enables the Ultimate variant to run smoothly on 12GB GPUs.
+  attention_mode: sdpa
+
+  # SPEED OPTIMIZATION: Checkpointing disabled since model fits in 12GB VRAM.
+  # This increases speed to the current 1.64 it/s.
+  use_checkpointing: false
+
+  # TIERED JIT: Compiles individual blocks only.
+  # This is the "Safe Mode" for 16GB RAM systems, preventing the massive
+  # RAM overhead of full network compilation while keeping block-level speed.
+  compile_blocks: true
+
+  # STRUCTURE SUMMARY:
+  # - Total Depth: 9 Groups x 8 Blocks = 72 UltimateBlocks
+  # - Feature Width: 180 (Scaled for HAT-L weight class)
+  # - Staged Curriculum:
+  #   - Blocks 0-23: Gated Conv (Structural Structure/Denoising)
+  #   - Blocks 24-47: Window Attention (Sparse 2/3 density)
+  #   - Blocks 48-71: Full Refinement (Tokens + Windows)
+
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+
+# TRAINING STRATEGY: Optimized for Dataset Comparison
+# ----------------------------------------------------------------------------
+train:
+  ema_decay: 0.999
+  ema_power: 0.75
+  grad_clip: true # Essential for stability in deep transformer residuals
+
+  optim_g:
+    type: AdamW
+    lr: !!float 2e-4
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.99]
+
+  # SCHEDULER: Multi-step drops to stabilize metrics before comparison
+  scheduler:
+    type: MultiStepLR
+    milestones: [100000, 200000, 300000]
+    gamma: 0.5
+
+  total_iter: 400000
+  warmup_iter: 3000 # Short warmup to stabilize gradients on 3060
+
+  # FIDELITY LOSS: Hybrid L1 + MSSIM for PSNR/SSIM balance
+  # Calculated in BF16/FP16 for maximum speed.
+  losses:
+    - type: l1loss
+      loss_weight: 1.0
+    - type: mssimloss
+      loss_weight: 0.08 # Proven anchor for recovering fine image structure
+
+# VALIDATION & METRICS: Y-Channel Scientific Standards
+# ----------------------------------------------------------------------------
+val:
+  val_enabled: true
+  val_freq: 5000 # Infrequent validation to minimize overhead on Ryzen 3600
+  save_img: false
+
+  metrics_enabled: true
+  metrics:
+    psnr: # Peak Signal-to-Noise Ratio (Y-channel)
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: true # Compares only the luma channel for fair evaluation
+    ssim: # Structural Similarity Index (Y-channel)
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: true
+
+# LOGGING & CHECKPOINTING
+# ----------------------------------------------------------------------------
+logger:
+  print_freq: 100
+  save_checkpoint_freq: 10000
+  save_checkpoint_format: safetensors # Modern, safe format for weight storage
+  use_tb_logger: true
